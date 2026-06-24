@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# 테스트 / 커버리지
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 타입체커 / 린터 캐시
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# 환경변수 / 비밀
+.env
+.env.*
+!.env.example
+
+# 데이터 / 산출물 (필요시 조정)
+data/raw/
+output/
+*.log
