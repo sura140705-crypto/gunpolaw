@@ -17,12 +17,19 @@
 ## 실행
 
 ```powershell
+# 방법 1) 기동 시 OC 키 입력
 python file1.py
+# → "법제처 OpenAPI OC 키 입력:" 프롬프트에 키 입력
 # → 브라우저 http://localhost:8765 자동 오픈
+
+# 방법 2) 환경변수로 미리 지정
+$env:LAW_OC_KEY = "발급받은_OC_키"
+python file1.py
 ```
 
 - 의존성: **Python 표준 라이브러리만 사용** (별도 설치 불필요)
 - 데이터 소스: 법제처 OpenAPI (`law.go.kr/DRF`)
+- **OC 키는 소스에 저장하지 않음** — 기동 시 입력하거나 환경변수 `LAW_OC_KEY` 사용
 
 ## 개발 환경
 

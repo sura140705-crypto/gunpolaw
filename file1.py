@@ -12,6 +12,7 @@ Phase 6:   조항 단위 시점 검증 + 토큰화 + 일괄검증 + 신구법비
 
 import http.server
 import json
+import os
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -29,7 +30,7 @@ import phase6  # 조항 단위 시점 검증 모듈
 # ============================================================
 # 설정
 # ============================================================
-OC = "youzen618"
+OC = os.environ.get("LAW_OC_KEY", "").strip()  # 하드코딩 금지: 환경변수 또는 기동 시 입력
 PORT = 8765
 CACHE_TTL = 300
 GYEONGGI_ORG = "6410000"
@@ -1082,6 +1083,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 # 서버 시작
 # ============================================================
 def main():
+    global OC
+    if not OC:
+        try:
+            OC = input("법제처 OpenAPI OC 키 입력 (환경변수 LAW_OC_KEY 로도 설정 가능): ").strip()
+        except EOFError:
+            OC = ""
+        if not OC:
+            print("[!] OC 키가 없어 종료합니다.")
+            return
     init_db()
     folder = Path(__file__).parent
     ui_path = folder / "gunpo_ui_v2.html"
