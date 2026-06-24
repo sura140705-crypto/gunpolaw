@@ -40,4 +40,5 @@ Desktop.ini
 # 데이터 / 산출물 (필요시 조정)
 data/raw/
 output/
+gunpolaw.db
 *.log

@@ -1,20 +1,43 @@
 # -*- coding: utf-8 -*-
-"""CLI: 조례 1건 변경 탐지.
+"""CLI: 조례 변경 탐지.
 
     set LAW_OC_KEY=발급키
-    python -m gunpolaw <자치법규일련번호MST>
+    python -m gunpolaw <MST>              # 조례 1건 분석
+    python -m gunpolaw --batch [org] [N]  # 일괄(기본 org=4020000 군포), N=건수제한
+    python -m gunpolaw --report [org]     # 저장된 findings 집계
 """
 import sys
 
 from .pipeline import analyze_ordinance
 from .checks import SEV_LABEL
 
+GUNPO_ORG = "4020000"
+
 
 def main(argv):
     if not argv:
-        print("사용법: python -m gunpolaw <자치법규일련번호MST>")
+        print("사용법:")
+        print("  python -m gunpolaw <MST>             조례 1건 분석")
+        print("  python -m gunpolaw --batch [org] [N]  일괄 처리(기본 군포 4020000)")
+        print("  python -m gunpolaw --report [org]     저장 결과 집계")
         print("  (환경변수 LAW_OC_KEY 에 법제처 OC 키 필요)")
         return 1
+
+    if argv[0] == "--batch":
+        from .batch import run_batch
+        org = argv[1] if len(argv) > 1 and not argv[1].isdigit() else GUNPO_ORG
+        nums = [a for a in argv[1:] if a.isdigit()]
+        limit = int(nums[0]) if nums else None
+        res = run_batch(org, limit=limit)
+        print(f"\n처리 {res['processed']}건 (오류 {res['errors']}) → {res['db']}")
+        print(f"등급 집계: {res['agg']}")
+        return 0
+
+    if argv[0] == "--report":
+        from .batch import report
+        report()
+        return 0
+
     res = analyze_ordinance(argv[0])
     if "error" in res:
         print("오류:", res["error"])

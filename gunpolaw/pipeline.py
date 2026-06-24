@@ -10,10 +10,11 @@ from . import checks
 from .extract import extract_citations, group_by_law
 
 
-def analyze_ordinance(mst, link_index=None):
+def analyze_ordinance(mst, link_index=None, law_cache=None):
     """단일 조례 분석 -> {ordinance, findings, summary}.
 
     link_index: {정규화 법령명: 법령ID} (lnkOrg 사전, 선택). 법령ID 보강용.
+    law_cache:  {법령ID: 조문dict} 공유 캐시(선택). 배치에서 법령 본문 1회만 호출.
     """
     body = moleg.get_ordinance_body(mst)
     if "error" in body:
@@ -23,7 +24,7 @@ def analyze_ordinance(mst, link_index=None):
 
     grouped = group_by_law(extract_citations(body["full_text"]))
     link_index = link_index or {}
-    law_body_cache = {}
+    law_body_cache = law_cache if law_cache is not None else {}
     findings = []
 
     for name, g in grouped.items():
