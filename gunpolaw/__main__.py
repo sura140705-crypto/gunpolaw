@@ -18,17 +18,16 @@ def main(argv):
     if not argv:
         print("사용법:")
         print("  python -m gunpolaw <MST>             조례 1건 분석")
-        print("  python -m gunpolaw --batch [org] [N]  일괄 처리(기본 군포 4020000)")
-        print("  python -m gunpolaw --report [org]     저장 결과 집계")
+        print("  python -m gunpolaw --batch [N]       전수 일괄 처리(군포, N=건수제한)")
+        print("  python -m gunpolaw --report          저장 결과 집계")
         print("  (환경변수 LAW_OC_KEY 에 법제처 OC 키 필요)")
         return 1
 
     if argv[0] == "--batch":
         from .batch import run_batch
-        org = argv[1] if len(argv) > 1 and not argv[1].isdigit() else GUNPO_ORG
         nums = [a for a in argv[1:] if a.isdigit()]
         limit = int(nums[0]) if nums else None
-        res = run_batch(org, limit=limit)
+        res = run_batch(limit=limit)
         print(f"\n처리 {res['processed']}건 (오류 {res['errors']}) → {res['db']}")
         print(f"등급 집계: {res['agg']}")
         return 0

@@ -11,31 +11,67 @@ from . import db
 from . import moleg
 from .pipeline import analyze_ordinance
 
+# 군포 기본값. 목록(ordin)은 광역 org + 시군 sborg, lnkOrg는 sborg를 org로 사용.
+GUNPO_ORG = "6410000"     # 경기도
+GUNPO_SBORG = "4020000"   # 군포시
+# 전수 대상 자치법규 종류 (훈령/예규/고시는 군포에 0건이지만 포함)
+KND_CODES = ["30001", "30002", "30003", "30004", "30010", "30011"]
+
 
 def _now():
     return datetime.now().isoformat(timespec="seconds")
 
 
-def run_batch(org, limit=None, db_path=db.DEFAULT_DB, sleep=0.1, verbose=True):
+def collect_ordinances(conn, org, sborg, verbose=True):
+    """목록 API(target=ordin)로 자치법규 전수 수집 → ordinances 테이블 적재."""
+    items, by_knd = [], {}
+    for knd in KND_CODES:
+        first = moleg.search_ordinances(org, sborg, knd, page=1, display=100)
+        total = first["totalCount"]
+        if total == 0:
+            continue
+        got = list(first["items"])
+        for p in range(2, (total + 99) // 100 + 1):
+            time.sleep(0.15)
+            got += moleg.search_ordinances(org, sborg, knd, page=p, display=100)["items"]
+        by_knd[knd] = len(got)
+        items += got
+    for it in items:
+        conn.execute(
+            """INSERT OR REPLACE INTO ordinances
+               (mst, lid, name, knd, org, sborg, promulg_date, enforce_date)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (it["mst"], it["lid"], it["name"], it["knd"], org, sborg,
+             it["promulg_date"], it["enforce_date"]))
+    conn.commit()
+    if verbose:
+        print(f"전수 수집: {len(items)}건  종류별={by_knd}")
+    return items
+
+
+def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
+              db_path=db.DEFAULT_DB, sleep=0.1, verbose=True):
     db.init_db(db_path)
     conn = db.connect(db_path)
 
-    # 1) 공식 연계(lnkOrg) — 법령ID 사전 + 처리 대상 조례 목록
-    links = moleg.get_org_links(org)
-    link_index, msts, seen = {}, [], set()
-    for r in links:
+    # 1) 전수 수집(목록 API)
+    items = collect_ordinances(conn, org, sborg, verbose)
+    msts = [(it["mst"], it["name"]) for it in items]
+
+    # 2) lnkOrg(시군 코드) — 법령ID 보강 사전 + 공식 연계 저장
+    link_index = {}
+    for r in moleg.get_org_links(sborg):
         if r["law_name"] and r["law_id"]:
             link_index[r["law_name"].replace(" ", "")] = r["law_id"]
         conn.execute(
             "INSERT OR REPLACE INTO ord_law_links(mst, law_id, law_name) VALUES (?,?,?)",
             (r["mst"], r["law_id"], r["law_name"]))
-        if r["mst"] not in seen:
-            seen.add(r["mst"]); msts.append((r["mst"], r["name"]))
     conn.commit()
+
     if limit:
         msts = msts[:limit]
     if verbose:
-        print(f"연계 조례 {len(seen)}건 중 {len(msts)}건 처리 (org={org})\n")
+        print(f"분석 대상 {len(msts)}건 (법령ID 보강사전 {len(link_index)}개)\n")
 
     # 2) findings 스냅샷 재작성
     conn.execute("DELETE FROM findings")
