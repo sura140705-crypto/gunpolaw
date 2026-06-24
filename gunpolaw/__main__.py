@@ -18,18 +18,21 @@ def main(argv):
     if not argv:
         print("사용법:")
         print("  python -m gunpolaw <MST>             조례 1건 분석")
-        print("  python -m gunpolaw --batch [N]       전수 일괄 처리(군포, N=건수제한)")
-        print("  python -m gunpolaw --report          저장 결과 집계")
+        print("  python -m gunpolaw --batch [N] [--deep]  전수 일괄(--deep=내용diff 확정)")
+        print("  python -m gunpolaw <MST> [--deep]        조례 1건(--deep=2단계)")
+        print("  python -m gunpolaw --report             저장 결과 집계")
         print("  (환경변수 LAW_OC_KEY 에 법제처 OC 키 필요)")
         return 1
+
+    deep = "--deep" in argv
 
     if argv[0] == "--batch":
         from .batch import run_batch
         nums = [a for a in argv[1:] if a.isdigit()]
         limit = int(nums[0]) if nums else None
-        res = run_batch(limit=limit)
+        res = run_batch(limit=limit, deep=deep)
         print(f"\n처리 {res['processed']}건 (오류 {res['errors']}) → {res['db']}")
-        print(f"등급 집계: {res['agg']}")
+        print(f"등급 집계: {res['agg']}  (deep={deep})")
         return 0
 
     if argv[0] == "--report":
@@ -37,17 +40,19 @@ def main(argv):
         report()
         return 0
 
-    res = analyze_ordinance(argv[0])
+    rest = [a for a in argv if not a.startswith("--")]
+    res = analyze_ordinance(rest[0], deep=deep)
     if "error" in res:
         print("오류:", res["error"])
         return 1
     o = res["ordinance"]
-    print(f"조례: {o['name']} (시행 {o['enforce_date']})")
+    print(f"조례: {o['name']} (시행 {o['enforce_date']})  deep={deep}")
     print(f"요약: {res['summary']}\n")
     for f in res["findings"]:
         tag = SEV_LABEL.get(f["severity"], f["severity"])
+        ct = f.get("change_type", "")
         loc = f["clause_label"] or "(법령단위)"
-        print(f"[{tag}] 「{f['law_name']}」 {loc}")
+        print(f"[{tag}{('/'+ct) if ct else ''}] 「{f['law_name']}」 {loc}")
         print(f"      {f['detail']}")
     return 0
 

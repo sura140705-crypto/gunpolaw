@@ -93,6 +93,49 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id=""):
             "detail": "개정이력 없음·조문시행일 조례 이전 — 현행 정합"}
 
 
+def _norm(s):
+    return re.sub(r"\s+", "", s or "")
+
+
+def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_id=""):
+    """2단계: 조례 당시 시행본(old) vs 현행(cur) 조문 내용을 직접 비교해 확정.
+
+    시스템 역할 = "검토 대상"을 유형·근거와 함께 알려주는 것. 수정 방법은 담당자 몫.
+    """
+    base = {"law_id": law_id, "law_name": law_name, "clause_label": clause_label,
+            "ord_enforce": ord_enforce, "category": "timing", "clause_enforce": "",
+            "evidence": ""}
+    old = old_arts.get(clause_label)
+    cur = cur_arts.get(clause_label)
+
+    if old and cur:
+        if _norm(old["content"]) == _norm(cur["content"]):
+            return {**base, "category": "current", "severity": "current",
+                    "change_type": "동일", "detail": "당시 조문과 현행 내용 동일 — 검토 불필요"}
+        return {**base, "severity": "review", "change_type": "내용변경",
+                "clause_enforce": cur["enforce_date"],
+                "evidence": f"[당시] {old['content'][:120]}\n[현행] {cur['content'][:120]}",
+                "detail": f"{clause_label} 내용이 조례 제정 당시와 달라짐 — 검토 필요"}
+
+    if old and not cur:
+        on = _norm(old["content"])
+        for lbl, ca in cur_arts.items():
+            if _norm(ca["content"]) == on:
+                return {**base, "category": "status", "severity": "review",
+                        "change_type": "번호이동", "evidence": old["content"][:160],
+                        "detail": f"{clause_label} 내용이 현행 {lbl} 로 이동(번호 변경) — 검토 필요"}
+        return {**base, "category": "status", "severity": "review",
+                "change_type": "삭제", "evidence": old["content"][:160],
+                "detail": f"{clause_label} 가 현행 법령에서 사라짐(삭제/통합 의심) — 검토 필요"}
+
+    if cur and not old:
+        return {**base, "severity": "check", "change_type": "당시부재",
+                "detail": f"{clause_label} 가 조례 당시 시행본에 없음 — 확인 필요"}
+
+    return {**base, "category": "status", "severity": "check", "change_type": "미확인",
+            "detail": f"{clause_label} 를 당시·현행 어디서도 못 찾음 — 확인 필요"}
+
+
 SEV_ORDER = {"mechanical": 0, "review": 1, "check": 2, "current": 3}
 SEV_LABEL = {"mechanical": "🔧기계적개정", "review": "⚠️실질검토",
              "check": "📋확인", "current": "✅현행"}

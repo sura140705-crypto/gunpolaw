@@ -7,14 +7,18 @@
 """
 from . import moleg
 from . import checks
+from . import history
 from .extract import extract_citations, group_by_law
 
 
-def analyze_ordinance(mst, link_index=None, law_cache=None):
+def analyze_ordinance(mst, link_index=None, law_cache=None,
+                      deep=False, version_cache=None, old_cache=None):
     """단일 조례 분석 -> {ordinance, findings, summary}.
 
     link_index: {정규화 법령명: 법령ID} (lnkOrg 사전, 선택). 법령ID 보강용.
-    law_cache:  {법령ID: 조문dict} 공유 캐시(선택). 배치에서 법령 본문 1회만 호출.
+    law_cache:  {법령ID: 현행 조문dict} 공유 캐시. 법령 본문 1회만 호출.
+    deep:       True면 2단계 — 조례 당시 시행본을 받아 현행과 내용 diff로 확정.
+    version_cache/old_cache: 2단계 캐시({법령ID:버전목록}, {버전MST:조문dict}).
     """
     body = moleg.get_ordinance_body(mst)
     if "error" in body:
@@ -25,25 +29,42 @@ def analyze_ordinance(mst, link_index=None, law_cache=None):
     grouped = group_by_law(extract_citations(body["full_text"]))
     link_index = link_index or {}
     law_body_cache = law_cache if law_cache is not None else {}
+    version_cache = version_cache if version_cache is not None else {}
+    old_cache = old_cache if old_cache is not None else {}
     findings = []
 
     for name, g in grouped.items():
-        if g["type"] != "법령":          # 자치법규간 참조는 1단계 제외
+        if g["type"] != "법령":          # 자치법규간 참조는 제외
             continue
         law_id = link_index.get(name.replace(" ", "")) or moleg.resolve_law_id(name)
         if not law_id:
             findings.append({
                 "law_id": "", "law_name": name, "clause_label": "",
-                "category": "status", "severity": "check",
+                "category": "status", "severity": "check", "change_type": "법령미해결",
                 "detail": "법령ID 미해결 (폐지/제명변경 의심)", "ord_enforce": ord_enforce,
                 "clause_enforce": "", "evidence": ""})
             continue
         if law_id not in law_body_cache:
             law_body_cache[law_id] = moleg.parse_law_articles(moleg.get_law_body(law_id))
-        arts = law_body_cache[law_id]
+        cur_arts = law_body_cache[law_id]
+
+        old_arts = None
+        if deep:
+            if law_id not in version_cache:
+                version_cache[law_id] = history.list_versions(name, law_id)
+            vsel = history.as_of(version_cache[law_id], ord_enforce)
+            if vsel:
+                if vsel["mst"] not in old_cache:
+                    old_cache[vsel["mst"]] = history.body_articles_by_mst(vsel["mst"])
+                old_arts = old_cache[vsel["mst"]]
+
         for label in g["clause_labels"]:
-            findings.append(
-                checks.check_clause(arts, label, ord_enforce, name, law_id))
+            if deep and old_arts is not None:
+                findings.append(
+                    checks.diff_clause(old_arts, cur_arts, label, ord_enforce, name, law_id))
+            else:
+                findings.append(
+                    checks.check_clause(cur_arts, label, ord_enforce, name, law_id))
 
     return {
         "ordinance": meta,

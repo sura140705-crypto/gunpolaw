@@ -74,8 +74,9 @@ CREATE TABLE IF NOT EXISTS findings (
     law_id          TEXT,
     law_name        TEXT,
     clause_label    TEXT,
-    category        TEXT,            -- timing(내용변경) / status(삭제·이동)
-    severity        TEXT,            -- mechanical / review / check / current
+    category        TEXT,            -- timing / status / current
+    severity        TEXT,            -- review(검토필요) / check(확인) / current
+    change_type     TEXT,            -- 내용변경 / 번호이동 / 삭제 / 동일 (2단계)
     detail          TEXT,
     ord_enforce     TEXT,
     clause_enforce  TEXT,
@@ -98,6 +99,10 @@ def connect(db_path=DEFAULT_DB):
 def init_db(db_path=DEFAULT_DB):
     conn = connect(db_path)
     conn.executescript(SCHEMA)
+    # 기존 DB 호환: change_type 컬럼 보강 (없을 때만)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
+    if "change_type" not in cols:
+        conn.execute("ALTER TABLE findings ADD COLUMN change_type TEXT")
     conn.commit()
     conn.close()
     return db_path

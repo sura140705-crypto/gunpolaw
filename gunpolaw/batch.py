@@ -50,7 +50,7 @@ def collect_ordinances(conn, org, sborg, verbose=True):
 
 
 def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
-              db_path=db.DEFAULT_DB, sleep=0.1, verbose=True):
+              db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False):
     db.init_db(db_path)
     conn = db.connect(db_path)
 
@@ -77,10 +77,11 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
     conn.execute("DELETE FROM findings")
     conn.commit()
 
-    law_cache, agg = {}, {}
+    law_cache, version_cache, old_cache, agg = {}, {}, {}, {}
     errors = 0
     for i, (mst, name) in enumerate(msts, 1):
-        res = analyze_ordinance(mst, link_index, law_cache)
+        res = analyze_ordinance(mst, link_index, law_cache,
+                                deep=deep, version_cache=version_cache, old_cache=old_cache)
         if "error" in res:
             errors += 1
             if verbose:
@@ -93,11 +94,12 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
         for f in res["findings"]:
             conn.execute(
                 """INSERT INTO findings(mst, law_id, law_name, clause_label, category,
-                       severity, detail, ord_enforce, clause_enforce, evidence, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                       severity, change_type, detail, ord_enforce, clause_enforce,
+                       evidence, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (mst, f["law_id"], f["law_name"], f["clause_label"], f["category"],
-                 f["severity"], f["detail"], f["ord_enforce"], f["clause_enforce"],
-                 (f["evidence"] or "")[:500], _now()))
+                 f["severity"], f.get("change_type", ""), f["detail"],
+                 f["ord_enforce"], f["clause_enforce"], (f["evidence"] or "")[:500], _now()))
             agg[f["severity"]] = agg.get(f["severity"], 0) + 1
         conn.commit()
         if verbose:
@@ -116,6 +118,11 @@ def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):
     for sev in ("mechanical", "review", "check", "current"):
         n = conn.execute("SELECT COUNT(*) FROM findings WHERE severity=?", (sev,)).fetchone()[0]
         print(f"  {sev:<10}: {n}")
+    print("=== 변경유형별 (2단계) ===")
+    for ct, n in conn.execute(
+            "SELECT COALESCE(NULLIF(change_type,''),'(미분류)'), COUNT(*) "
+            "FROM findings GROUP BY change_type ORDER BY COUNT(*) DESC"):
+        print(f"  {ct:<10}: {n}")
     print("\n=== 조례별 변경 건수 (상위 15) ===")
     rows = conn.execute(
         """SELECT o.name, COUNT(*) AS n
