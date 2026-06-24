@@ -24,6 +24,25 @@ def _date(s):
         return None
 
 
+_AMEND_TAG = re.compile(r"<(?:개정|신설|전문개정)([^>]*)>")
+_AMEND_DATE = re.compile(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})")
+
+
+def latest_amend_date(content):
+    """조내용 안의 <개정/신설/전문개정 YYYY.M.D.> 태그에서 최신 개정일(YYYYMMDD).
+
+    조문시행일자는 전부개정 시 모든 조문이 일괄 갱신돼 오탐을 만들지만,
+    이 태그는 '해당 조항'이 실제 개정된 날이라 정밀하다. 태그 없으면 None.
+    """
+    best = None
+    for seg in _AMEND_TAG.findall(content or ""):
+        for y, mo, d in _AMEND_DATE.findall(seg):
+            s = f"{int(y):04d}{int(mo):02d}{int(d):02d}"
+            if best is None or s > best:
+                best = s
+    return best
+
+
 def check_clause(articles, clause_label, ord_enforce, law_name="", law_id=""):
     """단일 인용 조항 판정 -> finding dict (현행이면 category=current)."""
     base = {
@@ -44,21 +63,34 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id=""):
         return {**base, "category": "status", "severity": "check",
                 "detail": f"현행 법령에 {clause_label} 없음 (삭제/이동 의심) — 확인 필요"}
 
-    base["clause_enforce"] = art["enforce_date"]
     base["evidence"] = art["content"][:200]
-    od, cd = _date(ord_enforce), _date(art["enforce_date"])
-    if not od or not cd:
+    od = _date(ord_enforce)
+    if not od:
         return {**base, "category": "timing", "severity": "check",
-                "detail": "시행일자 비교 불가"}
+                "clause_enforce": art["enforce_date"], "detail": "조례 시행일자 비교 불가"}
 
-    diff = (cd - od).days
-    if diff > 0:
-        sev = "review" if diff > 30 else "review"
-        return {**base, "category": "timing", "severity": sev,
-                "detail": f"인용 조항이 조례 시행({ord_enforce}) 이후 {diff}일 뒤 개정됨 "
-                          f"(현 조문시행일 {art['enforce_date']}) — 내용 변경 가능, 검토 필요"}
+    # 1차 신호: 해당 조항의 inline 개정일 (전부개정 일괄 갱신 노이즈 회피)
+    amend = latest_amend_date(art["content"])
+    if amend:
+        ad = _date(amend)
+        base["clause_enforce"] = amend
+        if ad and ad > od:
+            diff = (ad - od).days
+            return {**base, "category": "timing", "severity": "review",
+                    "detail": f"인용 조항이 조례 시행({ord_enforce}) 이후 개정됨 "
+                              f"(해당 조 개정일 {amend}, {diff}일 차) — 내용 변경, 검토 필요"}
+        return {**base, "category": "current", "severity": "current",
+                "detail": f"해당 조 최종 개정일({amend})이 조례 시행 이전 — 현행 정합"}
+
+    # 태그 없음: 조문시행일자로 전부개정 가능성만 보조 판정(확정 변경엔 미포함)
+    cd = _date(art["enforce_date"])
+    base["clause_enforce"] = art["enforce_date"]
+    if cd and cd > od:
+        return {**base, "category": "timing", "severity": "check",
+                "detail": f"개정이력 표기 없음이나 조문시행일({art['enforce_date']})이 "
+                          f"조례 이후 — 전부개정 가능성, 확인 필요"}
     return {**base, "category": "current", "severity": "current",
-            "detail": f"조문시행일({art['enforce_date']})이 조례 시행일 이전 — 현행 정합"}
+            "detail": "개정이력 없음·조문시행일 조례 이전 — 현행 정합"}
 
 
 SEV_ORDER = {"mechanical": 0, "review": 1, "check": 2, "current": 3}
