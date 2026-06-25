@@ -46,3 +46,6 @@ gunpo_ordinances.db
 
 # 3단계 권고서 산출물 (DB에서 재생성 — 추적 안 함)
 개정권고서.html
+
+# 파이프라인 점검 출력 (inspect_pipeline.py)
+inspect_*.txt

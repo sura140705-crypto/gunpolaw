@@ -189,9 +189,10 @@ def get_detail_parsed(mst):
             conn = sqlite3.connect(DB_PATH)
             conn.execute("""
                 UPDATE ordinances
-                SET body_xml=?, reason_text=?, revision_text=?, body_fetched_at=?
+                SET body_xml=?, dept=?, reason_text=?, revision_text=?, body_fetched_at=?
                 WHERE mst=?
-            """, (xml_data, parsed.get("reason_text", ""),
+            """, (xml_data, parsed.get("meta", {}).get("dept", ""),
+                  parsed.get("reason_text", ""),
                   parsed.get("revision_text", ""),
                   datetime.now().isoformat(), str(mst)))
             conn.commit()
@@ -802,17 +803,32 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_knd ON ordinances(knd)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_edate ON ordinances(enforce_date)")
+    # 담당과(부서) 컬럼 — 본문 API에만 있어 별도 백필로 채운다(기존 DB 호환)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(ordinances)")]
+    if "dept" not in cols:
+        conn.execute("ALTER TABLE ordinances ADD COLUMN dept TEXT")
     conn.commit()
     conn.close()
 
 
 def upsert_ordinance(item):
+    """목록 메타 적재. 본문 컬럼(body_xml/dept/이유/개정문)은 건드리지 않음.
+
+    INSERT OR REPLACE는 행을 통째로 덮어 본문을 날린다 → ON CONFLICT DO UPDATE로
+    목록 컬럼만 갱신해 재수집 시에도 이미 받은 본문·담당과를 보존(이어받기).
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
-        INSERT OR REPLACE INTO ordinances
+        INSERT INTO ordinances
         (mst, lid, name, knd, org, promulg_date, promulg_no, enforce_date,
          field, status, detail_url, collected_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(mst) DO UPDATE SET
+          lid=excluded.lid, name=excluded.name, knd=excluded.knd, org=excluded.org,
+          promulg_date=excluded.promulg_date, promulg_no=excluded.promulg_no,
+          enforce_date=excluded.enforce_date, field=excluded.field,
+          status=excluded.status, detail_url=excluded.detail_url,
+          collected_at=excluded.collected_at
     """, (item["MST"], item["자치법규ID"], item["자치법규명"],
           item["자치법규종류"], item["지자체기관명"],
           item["공포일자"], item["공포번호"], item["시행일자"],
@@ -822,7 +838,13 @@ def upsert_ordinance(item):
     conn.close()
 
 
-def collect_all_to_db():
+def collect_all_to_db(with_body=True, sleep=0.15):
+    """DB 생성: 1) 목록 메타 적재 → 2) 본문 수집(body_xml·담당과·이유·개정문).
+
+    담당과는 목록 API에 없어 본문에서만 나온다. 그래서 수집 단계에서 본문을 함께
+    받아 저장하고 거기서 dept를 채운다(별도 백필 불필요). 본문은 1회만 받고
+    재수집 시 이미 받은 건 건너뛴다.
+    """
     total_collected = 0
     summary = {}
     for knd_code, knd_label in KND_SEARCH_CODES.items():
@@ -842,7 +864,35 @@ def collect_all_to_db():
                     upsert_ordinance(it)
         summary[knd_label] = total
         total_collected += total
-    return {"total": total_collected, "by_kind": summary}
+
+    result = {"total": total_collected, "by_kind": summary}
+    if with_body:
+        result["body"] = collect_bodies(sleep=sleep)
+    return result
+
+
+def collect_bodies(sleep=0.15, force=False):
+    """각 자치법규 본문을 받아 body_xml·dept·이유·개정문을 채운다.
+
+    저장은 get_detail_parsed가 담당(이미 body_xml/dept UPDATE 포함). body_fetched_at
+    이 있는 건은 건너뛰어 이어받기 가능. force=True면 전건 재수집.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    q = "SELECT mst FROM ordinances"
+    if not force:
+        q += " WHERE body_fetched_at IS NULL OR body_fetched_at = ''"
+    msts = [r["mst"] for r in conn.execute(q + " ORDER BY mst").fetchall()]
+    conn.close()
+
+    processed, dept_filled = 0, 0
+    for mst in msts:
+        parsed = get_detail_parsed(mst)
+        processed += 1
+        if "error" not in parsed and parsed.get("meta", {}).get("dept"):
+            dept_filled += 1
+        time.sleep(sleep)
+    return {"processed": processed, "dept_filled": dept_filled, "targets": len(msts)}
 
 
 def query_db(filters=None, limit=100, offset=0):
@@ -854,6 +904,9 @@ def query_db(filters=None, limit=100, offset=0):
         if filters.get("knd"):
             where.append("knd = ?")
             params.append(filters["knd"])
+        if filters.get("dept"):
+            where.append("dept = ?")
+            params.append(filters["dept"])
         if filters.get("status"):
             where.append("status = ?")
             params.append(filters["status"])
@@ -891,6 +944,22 @@ def db_stats():
         "total": total, "by_knd": by_knd, "by_status": by_status,
         "oldest": [{"name": n, "date": d} for n, d in oldest],
     }
+
+
+def distinct_depts():
+    """채워진 담당과 목록 + 건수 (검색 드롭다운용)."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT dept, COUNT(*) FROM ordinances "
+        "WHERE dept IS NOT NULL AND dept != '' GROUP BY dept ORDER BY dept"
+    ).fetchall()
+    filled = conn.execute(
+        "SELECT COUNT(*) FROM ordinances WHERE dept IS NOT NULL AND dept != ''"
+    ).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM ordinances").fetchone()[0]
+    conn.close()
+    return {"depts": [{"name": d, "count": c} for d, c in rows],
+            "filled": filled, "total": total}
 
 
 # ============================================================
@@ -957,7 +1026,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     filters = {
                         "query": params.get("query", "").strip() or None,
                         "knd": params.get("knd_label", "").strip() or None,
-                        "status": params.get("status", "").strip() or None,
+                        "dept": params.get("dept", "").strip() or None,
                     }
                     filters = {k: v for k, v in filters.items() if v}
                     db_result = query_db(filters, limit=display,
@@ -975,6 +1044,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                             "시행일자": r["enforce_date"] or "",
                             "제개정구분명": r["status"] or "",
                             "자치법규분야명": r["field"] or "",
+                            "담당과": r["dept"] or "",
                             "자치법규상세링크": r["detail_url"] or "",
                         })
                     result = {"items": items, "totalCount": db_result["totalCount"]}
@@ -1051,6 +1121,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "input": ct,
                     "tokens": phase6.tokenize_clauses(ct)
                 }
+
+            elif path == "/api/depts":
+                result = distinct_depts()
 
             elif path == "/api/stats":
                 result = db_stats()

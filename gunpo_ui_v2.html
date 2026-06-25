@@ -251,9 +251,8 @@ tr:hover{background:#f8fafc}
 <h2>📊 DB 현황</h2>
 <div id="dbStats">로딩 중...</div>
 <div style="margin-top:12px">
-  <button class="btn btn-p" id="btnCollect" onclick="doCollect()">🚀 전수 수집 (org+sborg+knd)</button>
+  <button class="btn btn-p" id="btnCollect" onclick="doCollect()">🚀 전수 수집 (목록+본문+담당과)</button>
   <button class="btn btn-s" onclick="loadStats()">🔄 통계 새로고침</button>
-  <button class="btn btn-s" onclick="loadDemo()">⭐ 시연 골든케이스 자동 선택</button>
 </div>
 </div>
 
@@ -267,11 +266,8 @@ tr:hover{background:#f8fafc}
     <option value="규칙">규칙만</option>
     <option value="의회규칙">의회규칙</option>
   </select>
-  <select id="sstatus">
-    <option value="">전체 상태</option>
-    <option value="제정">제정</option>
-    <option value="일부개정">일부개정</option>
-    <option value="전부개정">전부개정</option>
+  <select id="sdept" onchange="doSearch(true)">
+    <option value="">전체 담당과</option>
   </select>
   <select id="sd" onchange="doSearch(true)">
     <option value="20" selected>20건씩</option>
@@ -279,6 +275,7 @@ tr:hover{background:#f8fafc}
     <option value="100">100건씩</option>
   </select>
   <button class="btn btn-p" onclick="doSearch()">🔍 검색</button>
+  <button class="btn btn-s" onclick="resetSearch()">↩ 초기화</button>
 </div>
 <div id="ss"></div>
 <div id="sr"></div>
@@ -427,43 +424,38 @@ async function loadStats(){
     h += '<div class="sc"><div class="sv">'+v+'</div><div class="sl">'+esc(k||'(미상)')+'</div></div>';
   }
   h += '</div>';
-  if(stats.oldest && stats.oldest.length){
-    h += '<div style="margin-top:8px;font-size:12px;color:var(--text-light)">';
-    h += '🎯 시연 후보 (가장 오래된 조례 TOP 5): ';
-    h += stats.oldest.map(o=>esc(o.name)+' ('+o.date.substr(0,4)+')').join(' / ');
-    h += '</div>';
-  }
   el.innerHTML = h;
 }
 
-// === 골든케이스 자동 선택 ===
-async function loadDemo(){
-  document.getElementById('sq').value = '지적재조사';
+// === 담당과 드롭다운 채우기 ===
+async function populateDepts(){
+  const sel = document.getElementById('sdept');
+  if(!sel) return;
+  const cur = sel.value;
+  const r = await api('depts');
+  let h = '<option value="">전체 담당과</option>';
+  for(const d of (r.depts||[])){
+    h += '<option value="'+esc(d.name)+'">'+esc(d.name)+' ('+d.count+')</option>';
+  }
+  sel.innerHTML = h;
+  sel.value = cur;
+}
+
+// === 검색 초기화 ===
+function resetSearch(){
+  document.getElementById('sq').value = '';
   document.getElementById('sknd').value = '조례';
-  document.getElementById('sstatus').value = '';
+  document.getElementById('sdept').value = '';
+  document.getElementById('sd').value = '20';
   S.page = 1;
-  await doSearch(true);
-  // 첫 번째 결과 자동 체크
-  setTimeout(()=>{
-    const first = S.ords[0];
-    if(first){
-      const id = first['MST'], nm = first['자치법규명'], dt = first['시행일자']||'';
-      if(!S.sel.some(s=>s.id===id)){
-        S.sel.push({id, name:nm, date:dt});
-      }
-      const ck = document.querySelector('.ck[data-id="'+id+'"]');
-      if(ck) ck.checked = true;
-      updSelCnt();
-      alert('⭐ 골든케이스 선택 완료!\n\n「' + nm + '」\n시행 ' + fmtDate(dt) + '\n\n[STEP 2: 인용 + 조항 추출] 탭으로 이동하세요.');
-    }
-  }, 500);
+  doSearch(true);
 }
 
 // === 전수 수집 ===
 async function doCollect(){
   const btn = document.getElementById('btnCollect');
   btn.disabled = true;
-  btn.innerHTML = '<span class="sp"></span> 수집 중... (약 2분)';
+  btn.innerHTML = '<span class="sp"></span> 수집 중... (목록+본문, 수 분 소요)';
   const r = await api('collect');
   if(r.error){
     alert('수집 실패: ' + r.error);
@@ -472,11 +464,16 @@ async function doCollect(){
     for(const [k,v] of Object.entries(r.by_kind||{})){
       msg += '  ' + k + ': ' + v + '건\n';
     }
+    if(r.body){
+      msg += '\n본문 수집: ' + r.body.processed + '건';
+      msg += '\n담당과 채움: ' + r.body.dept_filled + '건';
+    }
     alert(msg);
   }
   btn.disabled = false;
-  btn.innerHTML = '🚀 전수 수집 (org+sborg+knd)';
+  btn.innerHTML = '🚀 전수 수집 (목록+본문+담당과)';
   loadStats();
+  populateDepts();
   doSearch(true);
 }
 
@@ -486,11 +483,11 @@ async function doSearch(resetPage){
   S.display = parseInt(document.getElementById('sd').value) || 20;
   const q = document.getElementById('sq').value;
   const knd = document.getElementById('sknd').value;
-  const status = document.getElementById('sstatus').value;
+  const dept = document.getElementById('sdept').value;
   const ss = document.getElementById('ss');
   ss.innerHTML = '<span class="sp"></span> 조회 중... (페이지 ' + S.page + ')';
   const data = await api('search', {
-    query:q, knd_label:knd, status:status,
+    query:q, knd_label:knd, dept:dept,
     display:S.display, page:S.page
   });
   if(data.error){
@@ -555,20 +552,19 @@ function renderList(){
 
   h += '<div class="tw"><table><thead><tr>'
      + '<th style="width:40px"><input type="checkbox" id="ckAll"></th>'
-     + '<th>자치법규명</th><th>종류</th><th>상태</th><th>시행일자</th><th>동작</th></tr></thead><tbody>';
+     + '<th>자치법규명</th><th>종류</th><th>담당과</th><th>시행일자</th><th>동작</th></tr></thead><tbody>';
   S.ords.forEach((item,i) => {
     const id = item['MST'] || '';
     const nm = item['자치법규명'] || '';
     const tp = item['자치법규종류'] || '';
-    const stat = item['제개정구분명'] || '';
+    const dept = item['담당과'] || '';
     const dt = fmtDate(item['시행일자']);
     const ck = S.sel.some(s=>s.id===id);
-    const statClass = stat==='제정' ? 'st-i' : (stat==='일부개정' ? 'st-w' : 'st-g');
     h += '<tr data-idx="'+i+'">';
     h += '<td><input type="checkbox" class="ck" data-id="'+esc(id)+'" data-nm="'+esc(nm)+'" data-dt="'+esc(item['시행일자']||'')+'" '+(ck?'checked':'')+'></td>';
     h += '<td class="nm" style="font-weight:600;color:var(--primary);cursor:pointer" data-id="'+esc(id)+'" data-nm="'+esc(nm)+'">'+esc(nm)+'</td>';
     h += '<td><span class="st st-g">'+esc(tp)+'</span></td>';
-    h += '<td><span class="st '+statClass+'">'+esc(stat)+'</span></td>';
+    h += '<td>'+(dept?esc(dept):'<span style="color:var(--text-light)">-</span>')+'</td>';
     h += '<td>'+dt+'</td>';
     h += '<td><button class="btn btn-sm btn-s dtl" data-id="'+esc(id)+'" data-nm="'+esc(nm)+'">상세</button></td></tr>';
   });
@@ -1654,6 +1650,7 @@ document.getElementById('modal').onclick = function(e){
 
 // === 초기화 ===
 loadStats();
+populateDepts();
 </script>
 </body>
 </html>
