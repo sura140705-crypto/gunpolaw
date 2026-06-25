@@ -1099,7 +1099,9 @@ def main():
         print(f"[!] UI 파일 없음: {ui_path}")
         return
 
-    server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
+    # 단일 스레드면 외부 API 호출 한 건이 늦어질 때 페이지의 다른 요청까지
+    # 전부 줄 서서 먹통이 된다. 요청별 스레드로 분리해 UI 응답성을 보장.
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     stats = db_stats()
     print(f"""
 ======================================================

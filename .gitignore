@@ -41,6 +41,7 @@ Desktop.ini
 data/raw/
 output/
 gunpolaw.db
+gunpo_ordinances.db
 *.log
 
 # 3단계 권고서 산출물 (DB에서 재생성 — 추적 안 함)

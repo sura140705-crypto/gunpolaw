@@ -10,7 +10,7 @@
 - 파일: file1.py (Phase 1~4+규칙엔진) / phase6.py (조항 검증) / gunpo_ui_v2.html (UI)
   ※ file1.py는 gunpo_ui_v2.html을 serve하므로 v3 HTML도 v2 이름 유지
 - 실행: cd C:\probe_v3 && python file1.py → http://localhost:8765
-- OC 키: youzen618
+- OC 키: 환경변수 LAW_OC_KEY 로 주입 (소스·문서·DB에 저장 금지)
 - DB: gunpo_ordinances.db (SQLite)
 - 환경: Windows cmd (sh 문법 주의: # 주석 안 됨)
 
