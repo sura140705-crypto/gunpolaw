@@ -21,6 +21,7 @@ def main(argv):
         print("  python -m gunpolaw --batch [N] [--deep]  전수 일괄(--deep=내용diff 확정)")
         print("  python -m gunpolaw <MST> [--deep]        조례 1건(--deep=2단계)")
         print("  python -m gunpolaw --report             저장 결과 집계")
+        print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(3단계)")
         print("  (환경변수 LAW_OC_KEY 에 법제처 OC 키 필요)")
         return 1
 
@@ -38,6 +39,18 @@ def main(argv):
     if argv[0] == "--report":
         from .batch import report
         report()
+        return 0
+
+    if argv[0] == "--recommend":
+        from .report import write_report, GRADE_META
+        rest = [a for a in argv[1:] if not a.startswith("--")]
+        out = rest[0] if rest else "개정권고서.html"
+        path, s = write_report(out_path=out)
+        print(f"개정 권고서 생성 → {path}")
+        print(f"  정비 대상 {s['ordinances_action']}/{s['ordinances_total']}개 조례")
+        for k in ("mechanical", "review", "check", "current"):
+            m = GRADE_META[k]
+            print(f"  {m['emoji']} {m['label']:<7}: {s[k]}")
         return 0
 
     rest = [a for a in argv if not a.startswith("--")]
