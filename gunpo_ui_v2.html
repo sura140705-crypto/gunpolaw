@@ -150,6 +150,11 @@ tr:hover{background:#f8fafc}
 #clausePop .cp-ch{font-weight:700;font-size:12px;color:#1e40af;margin-bottom:3px}
 #clausePop .cp-body{font-size:12px;white-space:pre-wrap;background:#f8fafc;border-radius:6px;padding:8px 10px}
 #clausePop .cp-x{float:right;cursor:pointer;color:#94a3b8;font-weight:700;font-size:16px;line-height:1}
+/* STEP2 인스펙터 조문 내용 */
+.cv-wrap .cv-item{margin-bottom:10px}
+.cv-wrap .cv-h{font-weight:700;font-size:12px;color:#1e40af;margin-bottom:3px}
+.cv-wrap .cv-body{font-size:12px;white-space:pre-wrap;background:#f8fafc;border-radius:6px;
+            padding:8px 10px;max-height:260px;overflow:auto}
 /* === v3.3 규칙엔진 메타/트랙 표시 === */
 .clause-row{display:inline-flex;align-items:center;gap:3px;margin:2px 4px 2px 0;
             background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;
@@ -1127,6 +1132,12 @@ function showInspector(gid){
     h += '</div>';
   }
 
+  // 조문 내용 (자동 로드 — 항/목 지정 시 그 부분만)
+  if(lawType === '법령' && cited){
+    h += '<div class="insp-section"><h4>조문 내용</h4>'
+       + '<div id="inspContent" class="cv-wrap"><span class="sp"></span> 불러오는 중...</div></div>';
+  }
+
   // 액션 버튼
   h += '<div class="insp-actions">';
   if(lawType === '법령'){
@@ -1141,6 +1152,36 @@ function showInspector(gid){
   h += '</div>';
 
   document.getElementById('inspPanel').innerHTML = h;
+  if(lawType === '법령' && cited) loadInspectorContent(lawName, cited, _curDoc.date);
+}
+
+const _CV_ICON = {clause_outdated_critical:'🚨', clause_outdated_warning:'⚠️',
+  clause_recently_updated:'⚠️', clause_current:'✅', clause_not_found:'❌',
+  moved:'🔄', unknown:'❓'};
+
+async function loadInspectorContent(lawName, cited, ordDate){
+  const el = document.getElementById('inspContent');
+  if(!el) return;
+  const d = await api('clause_view', {ord_date:ordDate||'', law_name:lawName, clause:cited});
+  if(d.error || !d.items || !d.items.length){
+    const msg = d.error ? d.error
+      : (d.status==='law_not_found'||d.status==='law_id_not_found') ? '법령을 찾지 못했습니다'
+      : '내용 없음';
+    el.innerHTML = '<span style="color:var(--text-light)">'+esc(msg)+'</span>';
+    return;
+  }
+  let head = '';
+  if(d.law_name && d.law_name.replace(/\s/g,'') !== lawName.replace(/\s/g,'')){
+    head = '<div style="font-size:11px;color:var(--text-light);margin-bottom:6px">↪ 현행 「'+esc(d.law_name)+'」(으)로 연결됨</div>';
+  }
+  el.innerHTML = head + d.items.map(it => {
+    const ic = _CV_ICON[it.status] || '';
+    const meta = [it.title, it.enforce_date ? '시행 '+fmtDate(it.enforce_date) : '']
+      .filter(Boolean).join(' · ');
+    return '<div class="cv-item"><div class="cv-h">'+ic+' '+esc(it.label)
+      + (meta ? ' · '+esc(meta) : '') + '</div>'
+      + '<div class="cv-body">'+esc(it.content||'(내용 없음)')+'</div></div>';
+  }).join('');
 }
 
 async function verifyHere(force){

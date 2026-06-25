@@ -1227,6 +1227,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     call_law_api, search_law_first, cache_get, cache_set
                 )
 
+            elif path == "/api/clause_view":
+                result = phase6.clause_view(
+                    params.get("ord_date", ""),
+                    params.get("law_name", ""),
+                    params.get("clause", ""),
+                    call_law_api, search_law_first, cache_get, cache_set)
+
             elif path == "/api/old_and_new":
                 law_id = params.get("law_id", "").strip()
                 if not law_id:

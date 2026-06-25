@@ -414,3 +414,147 @@ def get_old_and_new(law_id, call_law_api, cache_get, cache_set):
     }
     cache_set(ck, result)
     return result
+
+
+# ============================================================
+# 조/항/호 단위 내용 조회 (STEP2 인스펙터 — "조항 찍으면 내용까지")
+# ============================================================
+def _circled(n):
+    """1 -> '①' ... 20 -> '⑳'."""
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return ""
+    return chr(0x2460 + n - 1) if 1 <= n <= 20 else ""
+
+
+def _parse_units_struct(xml_data):
+    """{라벨: {title, enforce, jomun, hangs:[{no, content, hos:[{no,content}]}]}}.
+    parse_law_articles와 달리 항/호 구조를 보존한다."""
+    if not xml_data:
+        return {}
+    try:
+        root = ET.fromstring(xml_data)
+    except ET.ParseError:
+        return {}
+    units = {}
+    for u in root.findall(".//조문단위"):
+        if (u.findtext("조문여부") or "").strip() != "조문":
+            continue
+        jo = (u.findtext("조문번호") or "").strip()
+        if not jo:
+            continue
+        ga_raw = (u.findtext("조문가지번호") or "").strip()
+        ga = int(ga_raw) if ga_raw.isdigit() else 0
+        label = _to_label(int(jo), ga)
+        hangs = []
+        for h in u.findall("항"):
+            hos = [{"no": (o.findtext("호번호") or "").strip(),
+                    "content": (o.findtext("호내용") or "").strip()}
+                   for o in h.findall("호")]
+            hangs.append({"no": (h.findtext("항번호") or "").strip(),
+                          "content": (h.findtext("항내용") or "").strip(),
+                          "hos": hos})
+        units[label] = {
+            "title": (u.findtext("조문제목") or "").strip(),
+            "enforce": (u.findtext("조문시행일자") or "").strip(),
+            "jomun": (u.findtext("조문내용") or "").strip(),
+            "hangs": hangs,
+        }
+    return units
+
+
+def _expand_clause_expr(expr):
+    """인용 표현 -> [{label, jo, ga, hang, ho, disp}].
+    범위(제30조부터 제32조까지)는 조 단위로 전개(항/호 없음).
+    단일은 항/호까지 보존(제30조제1항제2호)."""
+    expr = expr or ""
+    items = []
+    m = re.search(r'제(\d+)조(?:의(\d+))?\s*부터\s*제(\d+)조(?:의(\d+))?\s*까지', expr)
+    if m:
+        n1, s1, n2, s2 = int(m.group(1)), int(m.group(2) or 0), int(m.group(3)), int(m.group(4) or 0)
+        seq = [(n1, s1)]
+        seq += [(k, 0) for k in range(n1 + 1, n2)]
+        seq += [(n2, s2)]
+        for jo, ga in seq:
+            lb = _to_label(jo, ga)
+            items.append({"label": lb, "jo": jo, "ga": ga, "hang": None, "ho": None, "disp": lb})
+        return items
+    seen = set()
+    for m in re.finditer(r'제(\d+)조(?:의(\d+))?(?:\s*제(\d+)항)?(?:\s*제(\d+)호)?', expr):
+        jo = int(m.group(1)); ga = int(m.group(2) or 0)
+        hang = int(m.group(3)) if m.group(3) else None
+        ho = int(m.group(4)) if m.group(4) else None
+        label = _to_label(jo, ga)
+        disp = label + (f"제{hang}항" if hang else "") + (f"제{ho}호" if ho else "")
+        key = (label, hang, ho)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"label": label, "jo": jo, "ga": ga, "hang": hang, "ho": ho, "disp": disp})
+    return items
+
+
+def _narrow_content(u, hang, ho):
+    """조 unit에서 항/호 지정 시 그 부분만, 아니면 조 전체."""
+    def full():
+        parts = [u["jomun"]]
+        for h in u["hangs"]:
+            parts.append(h["content"])
+            for o in h["hos"]:
+                parts.append("  " + o["content"])
+        return "\n".join(p for p in parts if p)
+
+    if not hang:
+        return full()
+    marker = _circled(hang)
+    target = next((h for h in u["hangs"] if h["no"] in (marker, str(hang))), None)
+    if not target:
+        return full()
+    if ho:
+        o = next((x for x in target["hos"] if x["no"] == str(ho)), None)
+        if o:
+            return o["content"]
+    parts = [target["content"]] + ["  " + o["content"] for o in target["hos"]]
+    return "\n".join(p for p in parts if p)
+
+
+def clause_view(ord_enforce_date, law_name, clause_expr,
+                call_law_api, search_law_first, cache_get, cache_set):
+    """인용 표현의 조(또는 항·호) 내용 + 조 단위 시점상태를 리스트로 반환."""
+    hit = search_law_first(law_name, "law")
+    if not hit:
+        return {"status": "law_not_found", "law_name": law_name, "items": []}
+    law_id = resolve_law_id(law_name, call_law_api, cache_get, cache_set)
+    if not law_id:
+        return {"status": "law_id_not_found", "law_name": hit["name"], "items": []}
+    units = _parse_units_struct(get_law_body(law_id, call_law_api, cache_get, cache_set))
+    if not units:
+        return {"status": "law_body_empty", "law_name": hit["name"], "law_id": law_id, "items": []}
+
+    od = _parse_date(ord_enforce_date)
+    out = []
+    for it in _expand_clause_expr(clause_expr):
+        u = units.get(it["label"])
+        if not u:
+            out.append({"label": it["disp"], "status": "clause_not_found",
+                        "title": "", "enforce_date": "", "content": ""})
+            continue
+        cd = _parse_date(u["enforce"])
+        diff = (cd - od).days if (od and cd) else None
+        if diff is None:
+            status = "unknown"
+        elif diff > 365:
+            status = "clause_outdated_critical"
+        elif diff > 30:
+            status = "clause_outdated_warning"
+        elif diff > 0:
+            status = "clause_recently_updated"
+        else:
+            status = "clause_current"
+        out.append({
+            "label": it["disp"], "title": u["title"],
+            "enforce_date": u["enforce"], "diff_days": diff, "status": status,
+            "content": _narrow_content(u, it["hang"], it["ho"])[:1200],
+        })
+    return {"status": "ok", "law_name": hit["name"], "law_id": law_id, "items": out}
