@@ -159,6 +159,7 @@ tr:hover{background:#f8fafc}
 .cv-wrap .cv-lawst{font-size:11px;padding:3px 9px;border-radius:6px;margin-bottom:8px;display:inline-block;font-weight:600}
 .cv-wrap .cv-lawst.ok{background:#dcfce7;color:#166534}
 .cv-wrap .cv-lawst.warn{background:#fef3c7;color:#92400e}
+.cv-wrap .cv-lawst.crit{background:#fee2e2;color:#991b1b}
 /* === v3.3 규칙엔진 메타/트랙 표시 === */
 .clause-row{display:inline-flex;align-items:center;gap:3px;margin:2px 4px 2px 0;
             background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;
@@ -1079,9 +1080,9 @@ function showInspector(gid){
     if(cm.range_expanded)        b += '<span class="meta-badge mb-range">범위</span>';
     if(b) _curBadges[cd.label] = b;
   });
-  if(lawType === '법령' && cited){
-    h += '<div class="insp-section"><h4>인용 조항 · 조문 내용</h4>'
-       + '<div id="inspContent" class="cv-wrap"><span class="sp"></span> 불러오는 중...</div></div>';
+  if(lawType === '법령'){
+    h += '<div class="insp-section"><h4>'+(cited?'인용 조항 · 조문 내용':'법령 현행성')+'</h4>'
+       + '<div id="inspContent" class="cv-wrap"><span class="sp"></span> 확인 중...</div></div>';
   } else if(pickedDetails.length){
     h += '<div class="insp-section"><h4>인용 조항 ('+pickedDetails.length+'개)</h4>';
     pickedDetails.forEach(cd => {
@@ -1119,7 +1120,7 @@ function showInspector(gid){
   h += '</div>';
 
   document.getElementById('inspPanel').innerHTML = h;
-  if(lawType === '법령' && cited) loadInspectorContent(lawName, cited, _curDoc.date);
+  if(lawType === '법령') loadInspectorContent(lawName, cited, _curDoc.date);
 }
 
 const _CV_ICON = {clause_outdated_critical:'🚨', clause_outdated_warning:'⚠️',
@@ -1130,18 +1131,27 @@ async function loadInspectorContent(lawName, cited, ordDate){
   const el = document.getElementById('inspContent');
   if(!el) return;
   const d = await api('clause_view', {ord_date:ordDate||'', law_name:lawName, clause:cited});
-  if(d.error || !d.items || !d.items.length){
-    const msg = d.error ? d.error
-      : (d.status==='law_not_found'||d.status==='law_id_not_found') ? '법령을 찾지 못했습니다 (폐지 의심)'
-      : '내용 없음';
-    el.innerHTML = '<span style="color:var(--text-light)">'+esc(msg)+'</span>';
+  if(d.error){
+    el.innerHTML = '<span style="color:var(--text-light)">'+esc(d.error)+'</span>';
     return;
   }
-  // 법령 현행성: 인용명과 현행명이 다르면 제명변경/통합
-  const renamed = d.law_name && d.law_name.replace(/\s/g,'') !== lawName.replace(/\s/g,'');
+  const nn = x => (x||'').replace(/\s/g,'');
+  // 법령 현행성 판정 (폐지 / 제명변경 / 현행)
+  if(d.status==='law_not_found' || d.status==='law_id_not_found'){
+    el.innerHTML = '<div class="cv-lawst crit">❌ 현행 법령에서 찾지 못함 — 폐지·제명변경 의심. '
+      + '조례 인용을 점검하세요.</div>';
+    return;
+  }
+  const renamed = d.law_name && nn(d.law_name) !== nn(lawName);
   const head = renamed
-    ? '<div class="cv-lawst warn">⚠️ 제명변경·통합 — 현행 「'+esc(d.law_name)+'」</div>'
-    : '<div class="cv-lawst ok">✅ 현행 법령</div>';
+    ? '<div class="cv-lawst warn">⚠️ 제명변경·통합 — 현행 「'+esc(d.law_name)+'」. 조례 인용 법령명 정정 검토.</div>'
+    : '<div class="cv-lawst ok">✅ 현행 법령 — 법령명 유효</div>';
+  // 법명만 인용(조항 없음): 현행성만 확인하고 종료 — 개정 불필요면 추가 표시 없음
+  if(!d.items || !d.items.length){
+    el.innerHTML = head + '<div class="cv-meta">인용에 조항 표기가 없어 법령 존재 여부만 확인했습니다. '
+      + (renamed ? '명칭이 바뀌었으니 인용 법령명 검토 필요.' : '현행 유효 — 별도 조치 불필요.') + '</div>';
+    return;
+  }
   el.innerHTML = head + d.items.map(it => {
     const ic = _CV_ICON[it.status] || '';
     const base = it.label.replace(/제\d+항.*$/,'').replace(/제\d+호.*$/,'');
