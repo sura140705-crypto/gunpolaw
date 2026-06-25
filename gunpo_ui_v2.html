@@ -702,6 +702,7 @@ async function doAnalyze(){
                    byeolpyoTrack: r.byeolpyo_track||[],
                    articles: (det && det.articles) || [],
                    addenda: (det && det.addenda) || [],
+                   refSpans: (det && det.ref_spans) || {},  // 서버 인용 span(약칭/이월/가지조문)
                    verifyCache: {}};  // 즉시 검증 결과 캐시
 
     totalExt  += st.external_laws||0;
@@ -937,80 +938,7 @@ function buildDocSelector(){
   return true;
 }
 
-function buildHitSpans(body, refs){
-  // 정규식 메타문자 이스케이프 — 리터럴 사용 안 함
-  function escRe(s){
-    var META = '.*+?^${}()|[]\\';
-    var out = '';
-    for(var i=0;i<s.length;i++){
-      var c = s.charAt(i);
-      if(META.indexOf(c) >= 0) out += '\\' + c;
-      else out += c;
-    }
-    return out;
-  }
-
-  var spans = [];
-  refs.forEach(function(rf, refIdx){
-    var nameEsc = escRe(rf.name);
-    // 패턴 문자열 조립 (정규식 리터럴 X, 한글은 string으로 안전)
-    var pat =
-      '「' + nameEsc + '」' +
-      '(?:\\s*\$\\s*이하[^)]*\$)?' +
-      '(?:\\s*(제\\d+조(?:의\\d+)?' +
-        '(?:\\s*(?:부터|및|또는|,|ㆍ|·)\\s*제\\d+조(?:의\\d+)?)*' +
-        '(?:\\s*까지)?(?:\\s*의?\\s*규정)?' +
-        '(?:\\s*제\\d+항(?:\\s*(?:및|또는|,|ㆍ|·)\\s*제\\d+항)*)?' +
-        '(?:\\s*제\\d+호(?:\\s*(?:및|또는|,|ㆍ|·)\\s*제\\d+호)*)?))?';
-    var reFull = new RegExp(pat, 'g');
-    var m;
-    while((m = reFull.exec(body)) !== null){
-      spans.push({
-        start: m.index,
-        end: m.index + m[0].length,
-        refIdx: refIdx,
-        refName: rf.name,
-        cited: (m[1] || '').trim(),
-        rfType: rf.type,
-        kind: 'full'
-      });
-    }
-  });
-  // 겹침 제거: start 정렬 후 더 긴 것 우선
-  spans.sort(function(a,b){ return a.start - b.start || b.end - a.end; });
-  var out = [];
-  var lastEnd = -1;
-  spans.forEach(function(s){
-    if(s.start >= lastEnd){ out.push(s); lastEnd = s.end; }
-  });
-  return out;
-}
-
-function renderArticleWithHits(body, spans){
-  // spans 적용: 뒤쪽부터 자르며 mark 삽입 (인덱스 보존)
-  if(!spans.length) return esc(body);
-  const sorted = [...spans].sort((a,b)=>a.start-b.start);
-  let html = '';
-  let pos = 0;
-  sorted.forEach((s, i) => {
-    if(pos < s.start) html += esc(body.substring(pos, s.start));
-    const text = body.substring(s.start, s.end);
-    const cls = s.rfType === '자치법규' ? 'cls-local' : '';
-    // verify 캐시 색상
-    const verifyKey = s.refName + '||' + s.cited;
-    const v = (_curDoc && _curDoc.verifyCache && _curDoc.verifyCache[verifyKey]);
-    let vcls = '';
-    if(v && v.summary){
-      if(v.summary.critical) vcls = ' verified-crit';
-      else if(v.summary.warning || v.summary.not_found) vcls = ' verified-warn';
-      else if(v.summary.current) vcls = ' verified-ok';
-    }
-    html += '<span class="ref-hit '+cls+vcls+'" data-hit="'+i+'">' + esc(text) + '</span>';
-    pos = s.end;
-  });
-  if(pos < body.length) html += esc(body.substring(pos));
-  return html;
-}
+// buildHitSpans/renderArticleWithHits 제거 — STEP2도 서버 ref_spans 사용(STEP1과 동일 로직).
 
 let _curDoc = null;
 let _curSpans = [];
@@ -1022,11 +950,11 @@ function renderSplitView(){
   _curDoc = S.ana[docId];
   if(!_curDoc) return;
 
-  // 좌측: 조문 + 하이라이트
+  // 좌측: 조문 + 하이라이트 (STEP1과 동일한 서버 ref_spans 사용)
   const arts = _curDoc.articles || [];
-  const refs = _curDoc.refs || [];
+  const refSpans = _curDoc.refSpans || {};
   let html = '';
-  _curSpans = [];  // 조문별 span 누적 — [{artIdx, spanIdx, spanData}]
+  _curSpans = [];  // gid -> {artIdx, span}
 
   arts.forEach((a, artIdx) => {
     const body = a.body || '';
@@ -1035,25 +963,20 @@ function renderSplitView(){
            + 'margin:8px 0;padding:6px 10px">' + esc(body) + '</div>';
       return;
     }
-    const spans = buildHitSpans(body, refs);
+    const spans = [...(refSpans[artIdx] || [])].sort((x,y)=>x.start-y.start);
     const hasRef = spans.length > 0;
-    // 글로벌 인덱스 부여
-    const globalSpans = spans.map(s => {
+    let inner = '', pos = 0;
+    spans.forEach(s => {
+      if(s.start < pos) return;                 // 겹침 방지
+      if(pos < s.start) inner += esc(body.substring(pos, s.start));
+      const text = body.substring(s.start, s.end);
       const gid = _curSpans.length;
-      _curSpans.push({artIdx, spanData:s});
-      return {...s, gid};
-    });
-    // renderArticleWithHits를 글로벌 인덱스용으로 다시
-    let inner = '';
-    if(!globalSpans.length){
-      inner = esc(body);
-    } else {
-      let pos = 0;
-      globalSpans.forEach(s => {
-        if(pos < s.start) inner += esc(body.substring(pos, s.start));
-        const text = body.substring(s.start, s.end);
-        const tcls = s.rfType === '자치법규' ? 'cls-local' : '';
-        const verifyKey = s.refName + '||' + s.cited;
+      _curSpans.push({artIdx, span:s});
+      if(s.kind === 'law'){                      // 법령명 = 색만 (클릭=인스펙터)
+        const cls = s.law_type === '자치법규' ? 'ref-ord' : 'ref-law';
+        inner += '<mark class="ref-hit '+cls+'" data-gid="'+gid+'">' + esc(text) + '</mark>';
+      } else {                                   // 조항 = 검증색 + 클릭
+        const verifyKey = s.law_name + '||' + (s.clause_text || text);
         const v = _curDoc.verifyCache?.[verifyKey];
         let vcls = '';
         if(v && v.summary){
@@ -1061,12 +984,13 @@ function renderSplitView(){
           else if(v.summary.warning || v.summary.not_found) vcls = ' verified-warn';
           else if(v.summary.current) vcls = ' verified-ok';
         }
-        inner += '<span class="ref-hit '+tcls+vcls+'" data-gid="'+s.gid+'">'
+        const ord = s.law_type === '자치법규' ? ' cls-local' : '';
+        inner += '<span class="ref-hit ref-clause'+ord+vcls+'" data-gid="'+gid+'">'
               + esc(text) + '</span>';
-        pos = s.end;
-      });
-      if(pos < body.length) inner += esc(body.substring(pos));
-    }
+      }
+      pos = s.end;
+    });
+    if(pos < body.length) inner += esc(body.substring(pos));
     html += '<div class="doc-art'+(hasRef?' has-ref':'')+'">';
     html += '<div class="da-head">'+esc(a.no)+' <span class="da-title">'+esc(a.title)+'</span></div>';
     html += '<div class="da-body">' + inner + '</div>';
@@ -1097,44 +1021,38 @@ function renderSplitView(){
 function showInspector(gid){
   const entry = _curSpans[gid];
   if(!entry || !_curDoc) return;
-  const s = entry.spanData;
-  const ref = (_curDoc.refs || [])[s.refIdx];
-  if(!ref) return;
-  _curInsp = {gid, refName: s.refName, cited: s.cited, refIdx: s.refIdx};
+  const s = entry.span;
+  const lawName = s.law_name || '';
+  const lawType = s.law_type || '법령';
+  const cited = s.clause_text || '';
+  // 분석 메타데이터 보강용: extract_refs 집계 ref(이름 매칭, 없을 수도 있음)
+  const nn = x => (x||'').replace(/\s/g,'');
+  const ref = (_curDoc.refs || []).find(r => nn(r.name) === nn(lawName)) || null;
+  _curInsp = {gid, lawName, cited};
 
-  // 인용된 조항의 메타 집합
-  // ref.clauses_detail 중에서 cited에서 토큰화된 것만 골라야 하지만,
-  // 간단히 cited를 클라이언트 토큰화해서 매칭
-  const citedTokens = s.cited ? tokenizeClient(s.cited) : [];
-  const allDetail = ref.clauses_detail || [];
-  let pickedDetails;
-  if(citedTokens.length){
-    pickedDetails = citedTokens.map(lb => {
-      const d = allDetail.find(x => x.label === lb);
-      return d || {label: lb, meta:{}};
-    });
-  } else {
-    pickedDetails = allDetail;
-  }
+  const citedTokens = cited ? tokenizeClient(cited) : [];
+  const allDetail = (ref && ref.clauses_detail) || [];
+  const pickedDetails = citedTokens.length
+    ? citedTokens.map(lb => allDetail.find(x => x.label === lb) || {label: lb, meta:{}})
+    : allDetail;
 
-  const ordDate = _curDoc.date;
-  const verifyKey = s.refName + '||' + s.cited;
-  const cached = _curDoc.verifyCache?.[verifyKey];
+  const cached = _curDoc.verifyCache?.[lawName + '||' + cited];
 
   let h = '';
   // 헤더
-  const ic = ref.type==='자치법규' ? '🏛️' : '📜';
+  const ic = lawType==='자치법규' ? '🏛️' : '📜';
   h += '<div class="insp-section">';
-  h += '<div class="insp-law">'+ic+' 「'+esc(s.refName)+'」</div>';
-  h += '<div style="font-size:11px;color:var(--text-light)">'
-     + esc(ref.type)+' · 신뢰도 '+esc((ref.confidence||'').toUpperCase())
-     + ' · 본 조례 총 '+ref.total_count+'회 인용</div>';
+  h += '<div class="insp-law">'+ic+' 「'+esc(lawName)+'」</div>';
+  h += '<div style="font-size:11px;color:var(--text-light)">' + esc(lawType)
+     + (ref ? ' · 신뢰도 '+esc((ref.confidence||'').toUpperCase())
+              + ' · 본 조례 총 '+ref.total_count+'회 인용' : '')
+     + '</div>';
   h += '</div>';
 
   // 원문 인용 표현
   h += '<div class="insp-section">';
   h += '<h4>원문 인용 표현</h4>';
-  h += '<div class="insp-raw">「'+esc(s.refName)+'」 '+esc(s.cited||'(조항 없음)')+'</div>';
+  h += '<div class="insp-raw">「'+esc(lawName)+'」 '+esc(cited||'(조항 없음)')+'</div>';
   h += '</div>';
 
   // 인용 조항 + 메타
@@ -1196,7 +1114,7 @@ function showInspector(gid){
   }
 
   // alias 출처
-  if((ref.alias_sources||[]).length){
+  if(ref && (ref.alias_sources||[]).length){
     h += '<div class="insp-section">';
     h += '<h4>해소 출처</h4>';
     ref.alias_sources.forEach(as => {
@@ -1211,7 +1129,7 @@ function showInspector(gid){
 
   // 액션 버튼
   h += '<div class="insp-actions">';
-  if(ref.type === '법령'){
+  if(lawType === '법령'){
     if(cached){
       h += '<button class="btn btn-s" onclick="verifyHere(true)">↻ 재검증</button>';
     } else {
@@ -1227,11 +1145,12 @@ function showInspector(gid){
 
 async function verifyHere(force){
   if(!_curInsp || !_curDoc) return;
-  const s = _curSpans[_curInsp.gid].spanData;
-  const verifyKey = s.refName + '||' + s.cited;
+  const s = _curSpans[_curInsp.gid].span;
+  const cited = s.clause_text || '';
+  const verifyKey = s.law_name + '||' + cited;
   const inspEl = document.getElementById('inspPanel');
   // 토큰 추출
-  const tokens = s.cited ? tokenizeClient(s.cited) : [];
+  const tokens = cited ? tokenizeClient(cited) : [];
   if(!tokens.length){
     alert('조항 정보가 없어 법령 단위로만 검증 가능합니다.');
     return;
@@ -1242,7 +1161,7 @@ async function verifyHere(force){
 
   const r = await api('check_clause_batch', {
     ord_date: _curDoc.date,
-    law_name: s.refName,
+    law_name: s.law_name,
     clauses: tokens.join(',')
   });
   if(r.error){
@@ -1253,12 +1172,12 @@ async function verifyHere(force){
   _curDoc.verifyCache[verifyKey] = r;
   // 인스펙터 + 본문 하이라이트 갱신
   showInspector(_curInsp.gid);
-  // 본문 색상도 갱신 — 같은 reference의 모든 hit
+  // 본문 색상도 갱신 — 같은 (법령||조항)의 모든 hit
   document.querySelectorAll('#docPanel .ref-hit').forEach(el => {
     const gid = parseInt(el.dataset.gid);
-    const sp = _curSpans[gid]?.spanData;
-    if(!sp) return;
-    const k = sp.refName + '||' + sp.cited;
+    const sp = _curSpans[gid]?.span;
+    if(!sp || sp.kind !== 'clause') return;
+    const k = sp.law_name + '||' + (sp.clause_text || '');
     const v = _curDoc.verifyCache[k];
     el.classList.remove('verified-ok','verified-warn','verified-crit');
     if(v && v.summary){
