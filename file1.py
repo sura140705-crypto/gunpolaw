@@ -17,6 +17,7 @@ import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 import re
+import socket
 import ssl
 import sqlite3
 import threading
@@ -178,6 +179,23 @@ def get_detail_parsed(mst):
     cached = cache_get(key)
     if cached:
         return cached
+
+    # 수집 때 저장한 본문이 있으면 API 없이 로컬에서 파싱(오프라인·즉시).
+    # API 재호출은 본문이 아직 없을 때만 — 키·네트워크 장애에도 본문이 뜬다.
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT body_xml FROM ordinances WHERE mst=?", (str(mst),)).fetchone()
+        conn.close()
+        if row and row["body_xml"]:
+            parsed = parse_body_xml(row["body_xml"])
+            if "error" not in parsed:
+                cache_set(key, parsed)
+                return parsed
+    except Exception:
+        pass
+
     xml_data = call_law_api("lawService.do", {
         "target": "ordin", "MST": str(mst), "type": "XML",
     })
@@ -1155,6 +1173,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 # ============================================================
 # 서버 시작
 # ============================================================
+def _port_in_use(port):
+    """이미 누군가 듣고 있으면 True (이중 기동 방지용 프리플라이트)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 def main():
     global OC
     if not OC:
@@ -1170,6 +1195,15 @@ def main():
     ui_path = folder / "gunpo_ui_v2.html"
     if not ui_path.exists():
         print(f"[!] UI 파일 없음: {ui_path}")
+        return
+
+    # 포트 선점 가드: Windows에선 allow_reuse_address로 이중 바인딩이 조용히 되어
+    # 구버전 서버가 요청을 가로채는 혼란이 생긴다. 이미 떠 있으면 멈추고 안내한다.
+    if _port_in_use(PORT):
+        print(f"[!] 포트 {PORT} 가 이미 사용 중입니다 — 다른 서버가 떠 있습니다.")
+        print(f"    기존 서버를 종료한 뒤 다시 실행하세요:")
+        print(f"      netstat -ano | findstr :{PORT}")
+        print(f"      taskkill /F /PID <위에서 본 PID>")
         return
 
     # 단일 스레드면 외부 API 호출 한 건이 늦어질 때 페이지의 다른 요청까지

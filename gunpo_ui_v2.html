@@ -261,8 +261,8 @@ tr:hover{background:#f8fafc}
 <div class="sbar">
   <input type="text" id="sq" placeholder="조례명 검색 (빈칸=전체)" onkeydown="if(event.key==='Enter')doSearch()">
   <select id="sknd">
-    <option value="">전체 종류</option>
-    <option value="조례" selected>조례만</option>
+    <option value="" selected>전체 종류</option>
+    <option value="조례">조례만</option>
     <option value="규칙">규칙만</option>
     <option value="의회규칙">의회규칙</option>
   </select>
@@ -270,9 +270,9 @@ tr:hover{background:#f8fafc}
     <option value="">전체 담당과</option>
   </select>
   <select id="sd" onchange="doSearch(true)">
+    <option value="10">10건씩</option>
     <option value="20" selected>20건씩</option>
     <option value="50">50건씩</option>
-    <option value="100">100건씩</option>
   </select>
   <button class="btn btn-p" onclick="doSearch()">🔍 검색</button>
   <button class="btn btn-s" onclick="resetSearch()">↩ 초기화</button>
@@ -444,7 +444,7 @@ async function populateDepts(){
 // === 검색 초기화 ===
 function resetSearch(){
   document.getElementById('sq').value = '';
-  document.getElementById('sknd').value = '조례';
+  document.getElementById('sknd').value = '';
   document.getElementById('sdept').value = '';
   document.getElementById('sd').value = '20';
   S.page = 1;
