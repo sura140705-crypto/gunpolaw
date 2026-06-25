@@ -155,6 +155,10 @@ tr:hover{background:#f8fafc}
 .cv-wrap .cv-h{font-weight:700;font-size:12px;color:#1e40af;margin-bottom:3px}
 .cv-wrap .cv-body{font-size:12px;white-space:pre-wrap;background:#f8fafc;border-radius:6px;
             padding:8px 10px;max-height:260px;overflow:auto}
+.cv-wrap .cv-meta{font-size:11px;color:var(--text-light);margin-bottom:3px}
+.cv-wrap .cv-lawst{font-size:11px;padding:3px 9px;border-radius:6px;margin-bottom:8px;display:inline-block;font-weight:600}
+.cv-wrap .cv-lawst.ok{background:#dcfce7;color:#166534}
+.cv-wrap .cv-lawst.warn{background:#fef3c7;color:#92400e}
 /* === v3.3 규칙엔진 메타/트랙 표시 === */
 .clause-row{display:inline-flex;align-items:center;gap:3px;margin:2px 4px 2px 0;
             background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;
@@ -947,6 +951,7 @@ function buildDocSelector(){
 
 let _curDoc = null;
 let _curSpans = [];
+let _curBadges = {};
 
 function renderSplitView(){
   document.getElementById('rc').style.display = 'block';  // ← 이 줄 추가
@@ -1060,60 +1065,28 @@ function showInspector(gid){
   h += '<div class="insp-raw">「'+esc(lawName)+'」 '+esc(cited||'(조항 없음)')+'</div>';
   h += '</div>';
 
-  // 인용 조항 + 메타
-  if(pickedDetails.length){
-    h += '<div class="insp-section">';
-    h += '<h4>인용 조항 ('+pickedDetails.length+'개)</h4>';
+  // 인용 조항 — 법령이면 조문 내용까지 통합(자동 로드), 자치법규는 라벨만.
+  // 배지(어느하나/제외/단서/별표/범위)는 조 라벨로 매핑해 내용에 합쳐 표시.
+  _curBadges = {};
+  pickedDetails.forEach(cd => {
+    const cm = cd.meta || {};
+    let b = '';
+    if(cm.quantifier === 'any')  b += '<span class="meta-badge mb-any">어느하나</span>';
+    if(cm.quantifier === 'all')  b += '<span class="meta-badge mb-all">각호</span>';
+    if(cm.relation_type === 'exclusion') b += '<span class="meta-badge mb-excl">제외</span>';
+    if(cm.scope === 'proviso')   b += '<span class="meta-badge mb-prov">단서</span>';
+    if(cm.byeolpyo)              b += '<span class="meta-badge mb-byeol">별표</span>';
+    if(cm.range_expanded)        b += '<span class="meta-badge mb-range">범위</span>';
+    if(b) _curBadges[cd.label] = b;
+  });
+  if(lawType === '법령' && cited){
+    h += '<div class="insp-section"><h4>인용 조항 · 조문 내용</h4>'
+       + '<div id="inspContent" class="cv-wrap"><span class="sp"></span> 불러오는 중...</div></div>';
+  } else if(pickedDetails.length){
+    h += '<div class="insp-section"><h4>인용 조항 ('+pickedDetails.length+'개)</h4>';
     pickedDetails.forEach(cd => {
-      const cm = cd.meta || {};
-      let rowCls = '';
-      let comment = '';
-      if(cached && cached.clauses){
-        const cr = cached.clauses.find(x => x.clause_label === cd.label);
-        if(cr){
-          if(cr.status === 'clause_outdated_critical') rowCls = 'crit';
-          else if(cr.status === 'clause_outdated_warning') rowCls = 'warn';
-          else if(cr.status === 'clause_current') rowCls = 'checked';
-          else if(cr.status === 'moved') rowCls = 'moved';
-          else if(cr.status === 'clause_not_found') rowCls = 'nf';
-          comment = cr;
-        }
-      }
-      let badges = '';
-      if(cm.quantifier === 'any')  badges += '<span class="meta-badge mb-any">어느하나</span>';
-      if(cm.quantifier === 'all')  badges += '<span class="meta-badge mb-all">각호</span>';
-      if(cm.relation_type === 'exclusion') badges += '<span class="meta-badge mb-excl">제외</span>';
-      if(cm.scope === 'proviso')   badges += '<span class="meta-badge mb-prov">단서</span>';
-      if(cm.byeolpyo)              badges += '<span class="meta-badge mb-byeol">별표</span>';
-      if(cm.range_expanded)        badges += '<span class="meta-badge mb-range">범위</span>';
-      h += '<div class="insp-clause '+rowCls+'">';
-      h += '<span class="ic-label">'+esc(cd.label)+'</span>';
-      h += '<span class="ic-meta">'+badges+'</span>';
-      h += '</div>';
-      if(comment){
-        const cc = comment.status === 'clause_outdated_critical' ? 'c-crit'
-                 : comment.status === 'clause_outdated_warning' ? 'c-warn'
-                 : comment.status === 'clause_current' ? 'c-ok'
-                 : comment.status === 'moved' ? 'c-mv'
-                 : comment.status === 'clause_not_found' ? 'c-nf' : 'c-warn';
-        const ic2 = comment.status === 'clause_outdated_critical' ? '🚨'
-                  : comment.status === 'clause_outdated_warning' ? '⚠️'
-                  : comment.status === 'clause_current' ? '✅'
-                  : comment.status === 'moved' ? '🔄'
-                  : comment.status === 'clause_not_found' ? '❌' : '❓';
-        h += '<div class="insp-comment '+cc+'">';
-        h += ic2 + ' ' + esc(comment.detail||'');
-        if(comment.clause_enforce_date){
-          h += '\n조항 시행: '+fmtDate(comment.clause_enforce_date);
-        }
-        if(comment.diff_days !== undefined && comment.diff_days !== null){
-          h += '  · 차이 '+comment.diff_days+'일';
-        }
-        if(comment.current_label){
-          h += '\n조문 이동: '+esc(comment.clause_label)+' → '+esc(comment.current_label);
-        }
-        h += '</div>';
-      }
+      h += '<div class="insp-clause"><span class="ic-label">'+esc(cd.label)+'</span>'
+         + '<span class="ic-meta">'+(_curBadges[cd.label]||'')+'</span></div>';
     });
     h += '</div>';
   }
@@ -1130,12 +1103,6 @@ function showInspector(gid){
          + 'border-radius:4px;margin-bottom:3px">'+esc(lbl)+'</div>';
     });
     h += '</div>';
-  }
-
-  // 조문 내용 (자동 로드 — 항/목 지정 시 그 부분만)
-  if(lawType === '법령' && cited){
-    h += '<div class="insp-section"><h4>조문 내용</h4>'
-       + '<div id="inspContent" class="cv-wrap"><span class="sp"></span> 불러오는 중...</div></div>';
   }
 
   // 액션 버튼
@@ -1165,21 +1132,27 @@ async function loadInspectorContent(lawName, cited, ordDate){
   const d = await api('clause_view', {ord_date:ordDate||'', law_name:lawName, clause:cited});
   if(d.error || !d.items || !d.items.length){
     const msg = d.error ? d.error
-      : (d.status==='law_not_found'||d.status==='law_id_not_found') ? '법령을 찾지 못했습니다'
+      : (d.status==='law_not_found'||d.status==='law_id_not_found') ? '법령을 찾지 못했습니다 (폐지 의심)'
       : '내용 없음';
     el.innerHTML = '<span style="color:var(--text-light)">'+esc(msg)+'</span>';
     return;
   }
-  let head = '';
-  if(d.law_name && d.law_name.replace(/\s/g,'') !== lawName.replace(/\s/g,'')){
-    head = '<div style="font-size:11px;color:var(--text-light);margin-bottom:6px">↪ 현행 「'+esc(d.law_name)+'」(으)로 연결됨</div>';
-  }
+  // 법령 현행성: 인용명과 현행명이 다르면 제명변경/통합
+  const renamed = d.law_name && d.law_name.replace(/\s/g,'') !== lawName.replace(/\s/g,'');
+  const head = renamed
+    ? '<div class="cv-lawst warn">⚠️ 제명변경·통합 — 현행 「'+esc(d.law_name)+'」</div>'
+    : '<div class="cv-lawst ok">✅ 현행 법령</div>';
   el.innerHTML = head + d.items.map(it => {
     const ic = _CV_ICON[it.status] || '';
-    const meta = [it.title, it.enforce_date ? '시행 '+fmtDate(it.enforce_date) : '']
-      .filter(Boolean).join(' · ');
-    return '<div class="cv-item"><div class="cv-h">'+ic+' '+esc(it.label)
-      + (meta ? ' · '+esc(meta) : '') + '</div>'
+    const base = it.label.replace(/제\d+항.*$/,'').replace(/제\d+호.*$/,'');
+    const badges = _curBadges[base] || _curBadges[it.label] || '';
+    const meta = [
+      it.title,
+      it.enforce_date ? '조문시행 '+fmtDate(it.enforce_date) : '',
+      (it.diff_days!=null ? '제정대비 '+(it.diff_days>0?'+':'')+it.diff_days+'일' : '')
+    ].filter(Boolean).join(' · ');
+    return '<div class="cv-item"><div class="cv-h">'+ic+' '+esc(it.label)+' '+badges+'</div>'
+      + (meta ? '<div class="cv-meta">'+esc(meta)+'</div>' : '')
       + '<div class="cv-body">'+esc(it.content||'(내용 없음)')+'</div></div>';
   }).join('');
 }
@@ -1729,6 +1702,7 @@ document.addEventListener('click', function(e){
 });
 loadStats();
 populateDepts();
+doSearch(true);   // 첫 화면에 전체 목록 자동 조회
 </script>
 </body>
 </html>
