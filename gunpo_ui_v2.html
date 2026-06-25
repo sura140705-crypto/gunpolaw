@@ -132,6 +132,24 @@ tr:hover{background:#f8fafc}
 .diff-col pre{font-family:'Pretendard',-apple-system,sans-serif;font-size:12px;line-height:1.7;
               white-space:pre-wrap;word-break:break-all}
 .kw{background:#fde047;padding:1px 3px;border-radius:3px;font-weight:600}
+/* === 상세 모달 인용 하이라이트 === */
+.ref-law{background:#fde047;padding:1px 3px;border-radius:3px;font-weight:600}
+.ref-ord{background:#e9d5ff;padding:1px 3px;border-radius:3px;font-weight:600}
+.ref-same{color:#6b7280;font-weight:600}
+.ref-clause{background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:4px;
+            font-weight:600;cursor:pointer;border-bottom:1px dashed #2563eb}
+.ref-clause:hover{background:#bfdbfe}
+.ref-clause.ord{background:#f3e8ff;color:#6b21a8;border-bottom-color:#a855f7;cursor:default}
+#clausePop{position:fixed;z-index:9999;width:460px;max-width:92vw;background:#fff;border:1px solid #cbd5e1;
+           border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:12px 14px;font-size:13px;
+           display:none}
+#clausePop h5{margin:0 0 6px;font-size:13px;color:var(--primary)}
+#clausePop .cp-meta{font-size:11px;color:var(--text-light);margin-bottom:6px}
+#clausePop .cp-list{max-height:60vh;overflow:auto}
+#clausePop .cp-clause{margin-bottom:10px}
+#clausePop .cp-ch{font-weight:700;font-size:12px;color:#1e40af;margin-bottom:3px}
+#clausePop .cp-body{font-size:12px;white-space:pre-wrap;background:#f8fafc;border-radius:6px;padding:8px 10px}
+#clausePop .cp-x{float:right;cursor:pointer;color:#94a3b8;font-weight:700;font-size:16px;line-height:1}
 /* === v3.3 규칙엔진 메타/트랙 표시 === */
 .clause-row{display:inline-flex;align-items:center;gap:3px;margin:2px 4px 2px 0;
             background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;
@@ -358,6 +376,7 @@ tr:hover{background:#f8fafc}
   <button class="mc" onclick="closeModal()">×</button>
   <div id="mc"></div>
 </div></div>
+<div id="clausePop"></div>
 
 <script>
 // === State ===
@@ -1591,6 +1610,118 @@ function exportRpt(){
 }
 
 // === 모달: 본문 상세 ===
+// === 상세 모달: 조항/타조례 하이라이트 + 조문 호출 ===
+function classifyRef(n){
+  if(/시행규칙$/.test(n)) return '법령';
+  if(/(조례|규칙)$/.test(n)) return '자치법규';
+  return '법령';
+}
+
+// 본문에서 「법령명」·"같은 법"·조항표현을 마킹. 조항은 직전 법령에 근접 바인딩
+// (조례 자기조문 오탐 방지 — 법령 언급에서 GAP자 이내의 조항만 인용으로 간주).
+function highlightRefs(body, ordDate){
+  body = body || '';
+  const LAW = '「([^」\\n]{2,80})」(?:\\s*\\([^)]*이하[^)]*\\))?';
+  const SAME = '(같은\\s*(?:법\\s*시행규칙|법\\s*시행령|영|법))';
+  const CLAUSE = '제\\d+조(?:의\\d+)?'
+    + '(?:\\s*(?:부터|및|또는|,|ㆍ|·)\\s*제\\d+조(?:의\\d+)?)*'
+    + '(?:\\s*까지)?(?:\\s*의?\\s*규정)?'
+    + '(?:\\s*제\\d+항(?:\\s*(?:및|또는|,|ㆍ|·)\\s*제\\d+항)*)?'
+    + '(?:\\s*제\\d+호(?:\\s*(?:및|또는|,|ㆍ|·)\\s*제\\d+호)*)?(?:\\s*제\\d+목)?';
+  const re = new RegExp(LAW + '|' + SAME + '|' + CLAUSE, 'g');
+  const GAP = 5;
+  let out = '', pos = 0, m;
+  let curLaw = '', curType = '', bindEnd = -999;
+  while((m = re.exec(body)) !== null){
+    out += esc(body.substring(pos, m.index));
+    pos = m.index + m[0].length;
+    if(m[1] !== undefined){                       // 「법령명」
+      curLaw = m[1].trim(); curType = classifyRef(curLaw); bindEnd = pos;
+      const cls = curType === '자치법규' ? 'ref-ord' : 'ref-law';
+      out += '<mark class="'+cls+'">' + esc(m[0]) + '</mark>';
+    } else if(m[2] !== undefined){                // 같은 법/영/시행규칙
+      const k = m[2].replace(/\s/g,'');
+      if(/시행규칙/.test(k)) curLaw = curLaw.replace(/\s*시행(령|규칙)$/,'') + ' 시행규칙';
+      else if(/시행령|영$/.test(k)) curLaw = curLaw.replace(/\s*시행(령|규칙)$/,'') + ' 시행령';
+      curType = '법령'; bindEnd = pos;
+      out += '<span class="ref-same">' + esc(m[0]) + '</span>';
+    } else {                                       // 조항표현
+      if(curLaw && (m.index - bindEnd) <= GAP){    // 법령에 근접 → 인용으로 마킹
+        bindEnd = pos;
+        out += '<span class="ref-clause" data-law="'+esc(curLaw)+'" data-type="'+esc(curType)
+             + '" data-clause="'+esc(m[0])+'" title="클릭: 해당 조문 보기">' + esc(m[0]) + '</span>';
+      } else {                                     // 자기조문 등 → 평문
+        out += esc(m[0]);
+      }
+    }
+  }
+  out += esc(body.substring(pos));
+  return out;
+}
+
+function hideClausePop(){ const p=document.getElementById('clausePop'); if(p) p.style.display='none'; }
+
+const _CLAUSE_STATUS={clause_outdated_critical:'🚨 조례 시행 이후 개정',
+  clause_outdated_warning:'⚠️ 개정 가능성', clause_recently_updated:'⚠️ 최근 개정',
+  clause_current:'✅ 현행 정합', clause_not_found:'❌ 현행 법령에 없음',
+  moved:'↪ 조문 이동', law_not_found:'❓ 법령 미발견', law_id_not_found:'❓ 법령ID 미발견'};
+
+function _clauseBlock(c){
+  const meta=[];
+  if(c.clause_title) meta.push(esc(c.clause_title));
+  if(c.clause_enforce_date) meta.push('시행 '+fmtDate(c.clause_enforce_date));
+  const st=_CLAUSE_STATUS[c.status]||c.status||'';
+  if(st) meta.push(st);
+  return '<div class="cp-clause"><div class="cp-ch">'+esc(c.clause_label||'')
+    +(meta.length?(' · '+meta.join(' · ')):'')+'</div>'
+    +'<div class="cp-body">'+esc(c.content||'(내용 없음)')+'</div></div>';
+}
+
+async function showClausePopover(el, ordDate){
+  const law=el.dataset.law, type=el.dataset.type, clause=el.dataset.clause;
+  const labels=tokenizeClient(clause).sort((a,b)=>{
+    const na=parseInt((a.match(/제(\d+)조/)||[])[1]||0), nb=parseInt((b.match(/제(\d+)조/)||[])[1]||0);
+    if(na!==nb) return na-nb;
+    const ga=parseInt((a.match(/의(\d+)/)||[])[1]||0), gb=parseInt((b.match(/의(\d+)/)||[])[1]||0);
+    return ga-gb;
+  });
+  const p=document.getElementById('clausePop');
+  const r=el.getBoundingClientRect();
+  p.style.left=Math.max(8, Math.min(r.left, window.innerWidth-470))+'px';
+  p.style.top=(r.bottom+6)+'px';
+  p.style.display='block';
+  const head='<span class="cp-x" onclick="hideClausePop()">×</span>';
+  const title='<h5>「'+esc(law)+'」 인용 조항 '+labels.length+'개</h5>';
+
+  if(type==='자치법규'){
+    p.innerHTML=head+title
+      +'<div class="cp-meta">타 자치법규 ('+esc(labels.join(', '))+') — 상위법령 검증 대상 아님</div>';
+    return;
+  }
+  p.innerHTML=head+title+'<div class="cp-meta"><span class="sp"></span> 조문 호출 중... ('+esc(labels.join(', '))+')</div>';
+
+  const d=await api('check_clause_batch',{ord_date:ordDate||'', law_name:law, clauses:labels.join(',')});
+  if(d.error){
+    p.innerHTML=head+title+'<div class="cp-meta st st-d">조문 호출 실패: '+esc(d.error)+'</div>';
+    return;
+  }
+  const clauses=d.clauses||[];
+  // 제명변경/폐지로 후속법에 연결된 경우 안내 (조항 결과의 해결된 법령명 사용)
+  const resolvedName=(clauses.find(c=>c.law_name)||{}).law_name||'';
+  let resolved='';
+  if(resolvedName && resolvedName.replace(/\s/g,'')!==law.replace(/\s/g,'')){
+    resolved='<div class="cp-meta">↪ 현행 「'+esc(resolvedName)+'」(으)로 연결됨</div>';
+  }
+  p.innerHTML=head+title+resolved+'<div class="cp-list">'+clauses.map(_clauseBlock).join('')+'</div>';
+}
+
+function bindClauseLinks(container, ordDate){
+  container.querySelectorAll('.ref-clause').forEach(el=>{
+    if(el.dataset.type==='자치법규') el.classList.add('ord');
+    el.onclick=function(ev){ ev.stopPropagation(); showClausePopover(el, ordDate); };
+  });
+}
+
 async function viewDetail(id, name){
   const m = document.getElementById('modal');
   const c = document.getElementById('mc');
@@ -1627,8 +1758,7 @@ async function viewDetail(id, name){
     }
     h += '<div class="art-block">';
     h += '<div class="art-head"><span class="st st-i">' + esc(a.no) + '</span> ' + esc(a.title) + '</div>';
-    h += '<div class="art-body">' + esc(a.body)
-         .replace(/「([^」]+)」/g,'<mark style="background:#fde047;padding:1px 3px;border-radius:3px;font-weight:600">「$1」</mark>') + '</div>';
+    h += '<div class="art-body">' + highlightRefs(a.body, meta.enforce_date) + '</div>';
     h += '</div>';
   });
   h += '</div>';
@@ -1642,13 +1772,20 @@ async function viewDetail(id, name){
     });
   }
   c.innerHTML = h;
+  bindClauseLinks(c, meta.enforce_date);
 }
-function closeModal(){document.getElementById('modal').classList.remove('active');}
+function closeModal(){
+  document.getElementById('modal').classList.remove('active');
+  hideClausePop();
+}
 document.getElementById('modal').onclick = function(e){
   if(e.target===this) closeModal();
 };
 
 // === 초기화 ===
+document.addEventListener('click', function(e){
+  if(!e.target.closest('#clausePop') && !e.target.closest('.ref-clause')) hideClausePop();
+});
 loadStats();
 populateDepts();
 </script>
