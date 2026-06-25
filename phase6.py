@@ -133,17 +133,21 @@ def parse_law_articles(xml_data):
     for unit in root.findall(".//조문단위"):
         if (unit.findtext("조문여부") or "").strip() != "조문":
             continue
-        key = (unit.findtext("조문키") or "").strip()
         jo_num = (unit.findtext("조문번호") or "").strip()
         if not jo_num:
             continue
-        # 조문키 마지막 3자리: 001=본조, 002=조의1, 003=조의2
-        try:
-            ga = int(key[-3:]) - 1 if key else 0
-            if ga < 0:
+        # 가지조문(제58조의2)의 가지번호는 <조문가지번호>('2')에 있다.
+        # 과거엔 <조문키> 끝3자리로 추정했으나 키가 비는 경우가 많아 의N이 전부
+        # 본조로 뭉개졌다(제58조의2 등 조회 실패). 조문가지번호를 우선 사용.
+        ga_raw = (unit.findtext("조문가지번호") or "").strip()
+        if ga_raw.isdigit():
+            ga = int(ga_raw)
+        else:
+            key = (unit.findtext("조문키") or "").strip()
+            try:
+                ga = max(int(key[-3:]) - 1, 0) if key else 0
+            except ValueError:
                 ga = 0
-        except ValueError:
-            ga = 0
         label = _to_label(int(jo_num), ga)
 
         body_parts = [(unit.findtext("조문내용") or "").strip()]

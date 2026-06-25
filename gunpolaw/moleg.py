@@ -198,12 +198,17 @@ def parse_law_articles(xml):
         jo_num = (u.findtext("조문번호") or "").strip()
         if not jo_num:
             continue
-        key = (u.findtext("조문키") or "").strip()
-        try:
-            ga = int(key[-3:]) - 1 if key else 0
-            ga = max(ga, 0)
-        except ValueError:
-            ga = 0
+        # 가지조문(제58조의2) 가지번호는 <조문가지번호>('2'). 키가 비는 경우가 많아
+        # 과거 <조문키> 추정은 의N을 본조로 뭉갰음 → 조문가지번호 우선.
+        ga_raw = (u.findtext("조문가지번호") or "").strip()
+        if ga_raw.isdigit():
+            ga = int(ga_raw)
+        else:
+            key = (u.findtext("조문키") or "").strip()
+            try:
+                ga = max(int(key[-3:]) - 1, 0) if key else 0
+            except ValueError:
+                ga = 0
         label = to_label(int(jo_num), ga)
         body = [(u.findtext("조문내용") or "").strip()]
         for hang in u.findall("항"):
