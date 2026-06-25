@@ -513,6 +513,113 @@ def find_refs_in_text(text, aliases=None, doc_aliases=None):
     return found
 
 
+# ============================================================
+# STEP1 상세: 인용 출현 span (약칭/이월/내부참조 규칙 반영)
+# ============================================================
+# 주의: 위 LAW_CITE_RE/ALIAS_DEF_RE 는 복붙 과정의 '$' 손상으로 inline 약칭을
+# 못 잡는다(인계노트 경고). 여기서는 손상 없는 정규식 + 깨진 따옴표(··법”)까지
+# 관대하게 처리해 span을 만든다. STEP1 모달이 이 결과를 그대로 하이라이트.
+_RS_LAW = re.compile(r'「([^」\n]{2,80})」')
+# 「법령명」 바로 뒤의 (이하 "X"라 한다) — 따옴표 자리에 ·/ㆍ/curly/없음 모두 허용
+_RS_INLINE_ALIAS = re.compile(
+    r'^\s*\(\s*이하\s*[^()가-힣A-Za-z]*'
+    r'([가-힣A-Za-z][가-힣A-Za-z0-9 ]*?)\s*'
+    r'[^()가-힣A-Za-z]*\s*(?:이?라)\s*한다\s*\)')
+
+
+def _rs_classify(name):
+    if re.search(r'시행(령|규칙)$', name):
+        return "법령"
+    if re.search(r'(조례|규칙)$', name):
+        return "자치법규"
+    return "법령"
+
+
+def ref_spans_for_articles(articles):
+    """조문별 인용 출현 span: {조index: [{start,end,kind,law_name,law_type,clause_text}]}.
+
+    규칙:
+      - 「법령명」 = law span (법령/자치법규 분류)
+      - 「법령명」(이하 "법") inline 약칭 → 문서 전역 사전 등록
+      - "법/영/규칙 제○조" 약칭 단독사용 → 정의된(또는 영=시행령·규칙=시행규칙) 법령에 연결
+      - "같은 법/영/시행령/시행규칙" 이월
+      - 위 단서에 근접(≤5자)한 조항만 인용으로 마킹.
+        앞에 아무 법령 단서 없이 나온 조항 = 조례 자기조문 → 제외.
+      - "이 규칙/이 조례 …" 자기참조 가드.
+    """
+    # 1) 전역 inline 약칭 사전
+    doc_aliases = {}
+    for a in articles:
+        body = a.get("body") or ""
+        for m in _RS_LAW.finditer(body):
+            am = _RS_INLINE_ALIAS.match(body[m.end():m.end() + 90])
+            if am:
+                doc_aliases[am.group(1).strip()] = m.group(1).strip()
+
+    alias_words = sorted({w for w in list(doc_aliases) + ["영", "규칙"] if w},
+                         key=len, reverse=True)
+    alias_alt = "|".join(re.escape(w) for w in alias_words)
+    token = re.compile(
+        r'(「[^」\n]{2,80}」)'
+        r'|(같은\s*(?:법\s*시행규칙|법\s*시행령|영|법))'
+        + (r'|(?<![가-힣A-Za-z「])(' + alias_alt + r')(?=\s*제\d)' if alias_alt else "")
+        + r'|(' + CLAUSE_INNER + r')')
+
+    GAP = 5
+    out = {}
+    for idx, a in enumerate(articles):
+        if not a.get("is_article"):
+            continue
+        body = a.get("body") or ""
+        spans, cur_law, cur_type, base_law, bind_end = [], "", "", "", -999
+        for m in token.finditer(body):
+            if m.group(1) is not None:                       # 「법령명」
+                nm = m.group(1)[1:-1].strip()
+                cur_law, cur_type = nm, _rs_classify(nm)
+                if cur_type == "법령" and not re.search(r'시행(령|규칙)$', nm):
+                    base_law = nm
+                bind_end = m.end()
+                am = _RS_INLINE_ALIAS.match(body[m.end():m.end() + 90])
+                if am:                                       # 약칭 정의 괄호까지 건너뜀
+                    bind_end = m.end() + am.end()
+                spans.append({"start": m.start(), "end": m.end(), "kind": "law",
+                              "law_name": nm, "law_type": cur_type})
+            elif m.group(2) is not None:                     # 같은 법/영/시행령/규칙
+                if base_law:
+                    k = m.group(2).replace(" ", "")
+                    if "시행규칙" in k:
+                        cur_law = base_law + " 시행규칙"
+                    elif "시행령" in k or k.endswith("영"):
+                        cur_law = base_law + " 시행령"
+                    else:
+                        cur_law = base_law
+                    cur_type, bind_end = "법령", m.end()
+            elif alias_alt and m.lastindex and m.group(3) is not None:  # 약칭 단독
+                w = m.group(3)
+                pre = body[max(0, m.start() - 3):m.start()]
+                if "이" in pre or "같은" in pre:              # 자기참조/이월 가드
+                    continue
+                if w in doc_aliases:
+                    cur_law = doc_aliases[w]
+                elif w == "영" and base_law:
+                    cur_law = base_law + " 시행령"
+                elif w == "규칙" and base_law:
+                    cur_law = base_law + " 시행규칙"
+                else:
+                    continue
+                cur_type, bind_end = _rs_classify(cur_law), m.end()
+            else:                                            # 조항 표현
+                if cur_law and (m.start() - bind_end) <= GAP:
+                    spans.append({"start": m.start(), "end": m.end(), "kind": "clause",
+                                  "law_name": cur_law, "law_type": cur_type,
+                                  "clause_text": m.group(0)})
+                    bind_end = m.end()
+                # 단서 없는 조항 = 조례 자기조문 → 제외
+        if spans:
+            out[idx] = spans
+    return out
+
+
 def extract_all_refs(parsed_body):
     """양식 A/B/C 통합 적용.
     출력 호환:
@@ -1073,6 +1180,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/detail":
                 mst = params.get("mst") or params.get("id", "")
                 result = get_detail_parsed(mst)
+                if isinstance(result, dict) and "error" not in result:
+                    result["ref_spans"] = ref_spans_for_articles(
+                        result.get("articles", []))
 
             elif path == "/api/extract_refs":
                 mst = params.get("mst") or params.get("id", "")

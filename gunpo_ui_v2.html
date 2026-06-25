@@ -1610,53 +1610,29 @@ function exportRpt(){
 }
 
 // === 모달: 본문 상세 ===
-// === 상세 모달: 조항/타조례 하이라이트 + 조문 호출 ===
-function classifyRef(n){
-  if(/시행규칙$/.test(n)) return '법령';
-  if(/(조례|규칙)$/.test(n)) return '자치법규';
-  return '법령';
-}
-
-// 본문에서 「법령명」·"같은 법"·조항표현을 마킹. 조항은 직전 법령에 근접 바인딩
-// (조례 자기조문 오탐 방지 — 법령 언급에서 GAP자 이내의 조항만 인용으로 간주).
-function highlightRefs(body, ordDate){
+// === 상세 모달: 서버 span으로 인용 하이라이트 (약칭/이월/내부참조 규칙은 서버) ===
+function renderArticleSpans(body, spans){
   body = body || '';
-  const LAW = '「([^」\\n]{2,80})」(?:\\s*\\([^)]*이하[^)]*\\))?';
-  const SAME = '(같은\\s*(?:법\\s*시행규칙|법\\s*시행령|영|법))';
-  const CLAUSE = '제\\d+조(?:의\\d+)?'
-    + '(?:\\s*(?:부터|및|또는|,|ㆍ|·)\\s*제\\d+조(?:의\\d+)?)*'
-    + '(?:\\s*까지)?(?:\\s*의?\\s*규정)?'
-    + '(?:\\s*제\\d+항(?:\\s*(?:및|또는|,|ㆍ|·)\\s*제\\d+항)*)?'
-    + '(?:\\s*제\\d+호(?:\\s*(?:및|또는|,|ㆍ|·)\\s*제\\d+호)*)?(?:\\s*제\\d+목)?';
-  const re = new RegExp(LAW + '|' + SAME + '|' + CLAUSE, 'g');
-  const GAP = 5;
-  let out = '', pos = 0, m;
-  let curLaw = '', curType = '', bindEnd = -999;
-  while((m = re.exec(body)) !== null){
-    out += esc(body.substring(pos, m.index));
-    pos = m.index + m[0].length;
-    if(m[1] !== undefined){                       // 「법령명」
-      curLaw = m[1].trim(); curType = classifyRef(curLaw); bindEnd = pos;
-      const cls = curType === '자치법규' ? 'ref-ord' : 'ref-law';
-      out += '<mark class="'+cls+'">' + esc(m[0]) + '</mark>';
-    } else if(m[2] !== undefined){                // 같은 법/영/시행규칙
-      const k = m[2].replace(/\s/g,'');
-      if(/시행규칙/.test(k)) curLaw = curLaw.replace(/\s*시행(령|규칙)$/,'') + ' 시행규칙';
-      else if(/시행령|영$/.test(k)) curLaw = curLaw.replace(/\s*시행(령|규칙)$/,'') + ' 시행령';
-      curType = '법령'; bindEnd = pos;
-      out += '<span class="ref-same">' + esc(m[0]) + '</span>';
-    } else {                                       // 조항표현
-      if(curLaw && (m.index - bindEnd) <= GAP){    // 법령에 근접 → 인용으로 마킹
-        bindEnd = pos;
-        out += '<span class="ref-clause" data-law="'+esc(curLaw)+'" data-type="'+esc(curType)
-             + '" data-clause="'+esc(m[0])+'" title="클릭: 해당 조문 보기">' + esc(m[0]) + '</span>';
-      } else {                                     // 자기조문 등 → 평문
-        out += esc(m[0]);
-      }
+  if(!spans || !spans.length) return esc(body);
+  const sorted = [...spans].sort((a,b)=>a.start-b.start);
+  let html='', pos=0;
+  sorted.forEach(s=>{
+    if(s.start < pos) return;                 // 겹침 방지
+    if(pos < s.start) html += esc(body.substring(pos, s.start));
+    const text = body.substring(s.start, s.end);
+    if(s.kind === 'law'){
+      const cls = s.law_type === '자치법규' ? 'ref-ord' : 'ref-law';
+      html += '<mark class="'+cls+'">' + esc(text) + '</mark>';
+    } else {                                  // clause
+      const ordCls = s.law_type === '자치법규' ? ' ord' : '';
+      html += '<span class="ref-clause'+ordCls+'" data-law="'+esc(s.law_name)+'" data-type="'
+            + esc(s.law_type)+'" data-clause="'+esc(s.clause_text||text)
+            + '" title="클릭: 해당 조문 보기">' + esc(text) + '</span>';
     }
-  }
-  out += esc(body.substring(pos));
-  return out;
+    pos = s.end;
+  });
+  if(pos < body.length) html += esc(body.substring(pos));
+  return html;
 }
 
 function hideClausePop(){ const p=document.getElementById('clausePop'); if(p) p.style.display='none'; }
@@ -1738,6 +1714,10 @@ async function viewDetail(id, name){
   h += '종류 ' + esc(meta.knd) + ' · 시행 ' + fmtDate(meta.enforce_date);
   h += ' · ' + esc(meta.status) + ' · 담당 ' + esc(meta.dept);
   h += ' · MST ' + esc(meta.mst) + '</div>';
+  h += '<div style="margin:0 0 14px;font-size:12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">'
+     + '<span><mark class="ref-law">법령</mark></span>'
+     + '<span><mark class="ref-ord">자치법규</mark></span>'
+     + '<span><span class="ref-clause">제○조</span> 클릭 → 해당 조문 보기</span></div>';
   if(d.reason_text){
     h += '<div class="gold-card"><h4>🌟 제개정이유내용 (법제처 원문)</h4>';
     h += '<div class="gc-body">' + esc(d.reason_text)
@@ -1751,14 +1731,15 @@ async function viewDetail(id, name){
     h += '</div></div>';
   }
   h += '<div style="margin-top:12px"><h4 style="margin-bottom:8px">📖 조문 (' + (d.articles||[]).length + '개)</h4>';
-  (d.articles||[]).forEach(a => {
+  const refSpans = d.ref_spans || {};
+  (d.articles||[]).forEach((a, idx) => {
     if(!a.is_article){
       h += '<div style="font-weight:700;font-size:13px;color:var(--text-light);margin:8px 0">' + esc(a.body) + '</div>';
       return;
     }
     h += '<div class="art-block">';
     h += '<div class="art-head"><span class="st st-i">' + esc(a.no) + '</span> ' + esc(a.title) + '</div>';
-    h += '<div class="art-body">' + highlightRefs(a.body, meta.enforce_date) + '</div>';
+    h += '<div class="art-body">' + renderArticleSpans(a.body, refSpans[idx]) + '</div>';
     h += '</div>';
   });
   h += '</div>';
