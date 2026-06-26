@@ -25,9 +25,11 @@ GRADE_META = {
     "mechanical": {"order": 0, "emoji": "🔧", "label": "기계적 개정", "cls": "g-mech"},
     "review":     {"order": 1, "emoji": "⚠️", "label": "실질 검토",   "cls": "g-rev"},
     "check":      {"order": 2, "emoji": "📋", "label": "확인",         "cls": "g-chk"},
-    "current":    {"order": 3, "emoji": "✅", "label": "현행 유지",     "cls": "g-cur"},
+    "format":     {"order": 3, "emoji": "📐", "label": "서식 정비",     "cls": "g-fmt"},
+    "current":    {"order": 4, "emoji": "✅", "label": "현행 유지",     "cls": "g-cur"},
 }
-GRADE_KEYS = ("mechanical", "review", "check", "current")
+# format = 내용은 현행이나 「」 없이 인용된 서식 결함(정비 권장, 최저 우선순위)
+GRADE_KEYS = ("mechanical", "review", "check", "format", "current")
 
 
 # ---------- 파싱·날짜·diff 헬퍼 ----------
@@ -116,7 +118,12 @@ def action_text(f):
     here = _get(f, "ord_clause")
     g = grade_of(_get(f, "severity"), ct)
     loc = f"이 조례 {here}" if here else "이 조례의 해당 조문"
-    # 「」 없이 맨몸으로 인용된 법령은 내용 정비와 함께 인용 서식도 바로잡도록 덧붙임
+    # 내용은 현행이지만 「」 없이 인용된 서식 결함 → 서식 정정만 안내(내용 변경 없음)
+    if _get(f, "cite_naked") and _get(f, "severity") == "current":
+        cl = f" {clause}" if clause else ""
+        return (f"「{law}」{cl} 인용을 꺽쇠(「」) 서식으로 정정 ({loc}) "
+                f"— 내용 변경은 없음, 서식만 정비")
+    # 내용 변경이 동반된 맨몸 인용은 내용 정비와 함께 인용 서식도 바로잡도록 덧붙임
     naked_note = (f' (덧붙여 「{law}」처럼 꺽쇠 서식으로 정정)'
                   if _get(f, "cite_naked") else "")
 
@@ -177,6 +184,9 @@ def build_model(db_path=db.DEFAULT_DB, mst=None):
     summary = {k: 0 for k in GRADE_KEYS}
     for r in rows:
         g = grade_of(r["severity"], r["change_type"])
+        # 내용 현행 + 맨몸 인용 → '서식 정비' 항목으로 분리(현행유지에서 끌어올림)
+        if g == "current" and (r["cite_naked"] or 0):
+            g = "format"
         summary[g] += 1
         o = by_mst.setdefault(r["mst"], {
             "mst": r["mst"],
@@ -223,7 +233,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None):
 
 # ---------- HTML 렌더 ----------
 _CSS = """
-:root { --mech:#2563eb; --rev:#d97706; --chk:#6b7280; --cur:#16a34a; }
+:root { --mech:#2563eb; --rev:#d97706; --chk:#6b7280; --fmt:#7c3aed; --cur:#16a34a; }
 * { box-sizing: border-box; }
 body { font-family: "Malgun Gothic","맑은 고딕",system-ui,sans-serif;
        color:#1f2937; margin:0; background:#f3f4f6; }
@@ -236,7 +246,7 @@ h1 { font-size:24px; margin:0 0 4px; }
 .card .n { font-size:28px; font-weight:700; line-height:1; }
 .card .t { font-size:13px; color:#6b7280; margin-top:6px; }
 .g-mech .n { color:var(--mech);} .g-rev .n { color:var(--rev);}
-.g-chk .n { color:var(--chk);} .g-cur .n { color:var(--cur);}
+.g-chk .n { color:var(--chk);} .g-fmt .n { color:var(--fmt);} .g-cur .n { color:var(--cur);}
 .ord { border:1px solid #e5e7eb; border-radius:10px; padding:16px 18px;
        margin:0 0 16px; page-break-inside:avoid; }
 .ord h2 { font-size:17px; margin:0 0 2px; }
@@ -245,7 +255,7 @@ h1 { font-size:24px; margin:0 0 4px; }
 .badge { display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px;
          margin-right:6px; color:#fff; }
 .b-mech { background:var(--mech);} .b-rev { background:var(--rev);}
-.b-chk { background:var(--chk);}
+.b-chk { background:var(--chk);} .b-fmt { background:var(--fmt);}
 .artsec { margin:0 0 6px; }
 .arthd { font-size:13px; font-weight:700; color:#111827; background:#eef2ff;
          border-left:3px solid var(--mech); padding:4px 10px; border-radius:4px;
@@ -287,7 +297,7 @@ def _esc(s):
 
 def _card(summary, key, title):
     m = GRADE_META[key]
-    return (f'<div class="card {m["cls"]}"><div class="n">{summary[key]}</div>'
+    return (f'<div class="card {m["cls"]}"><div class="n">{summary.get(key, 0)}</div>'
             f'<div class="t">{m["emoji"]} {title}</div></div>')
 
 
@@ -322,11 +332,15 @@ def _evidence_block(it):
 
 
 def _item_block(it):
-    tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk"}[it["grade"]]
-    tag = it["change_type"] or GRADE_META[it["grade"]]["label"]
+    tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk",
+               "format": "t-naked"}[it["grade"]]
+    # 서식 정비 항목은 변경유형(동일)이 아니라 '서식'으로 표기
+    tag = "서식" if it["grade"] == "format" else (
+        it["change_type"] or GRADE_META[it["grade"]]["label"])
     law = f'「{_esc(it["law_name"])}」 {_esc(it["clause_label"])}'.rstrip()
+    # 내용변경+맨몸은 별도 「」누락 배지, 서식정비(format) 항목은 태그 자체가 서식이라 생략
     naked = ('<span class="tag t-naked">「」누락</span>'
-             if it.get("cite_naked") else "")
+             if it.get("cite_naked") and it["grade"] != "format" else "")
     return (
         '<div class="item">'
         f'<div class="iline"><span class="tag {tag_cls}">{_esc(tag)}</span>{naked}'
@@ -339,8 +353,9 @@ def _item_block(it):
 def _ord_block(o):
     gr = o["grades"]
     badges = []
-    for key, bcls in (("mechanical", "b-mech"), ("review", "b-rev"), ("check", "b-chk")):
-        if gr[key]:
+    for key, bcls in (("mechanical", "b-mech"), ("review", "b-rev"),
+                      ("check", "b-chk"), ("format", "b-fmt")):
+        if gr.get(key):
             badges.append(f'<span class="badge {bcls}">'
                           f'{GRADE_META[key]["emoji"]} {GRADE_META[key]["label"]} {gr[key]}</span>')
 
@@ -374,7 +389,8 @@ def render_html(model, generated_at="", title="군포시 자치법규 정비 권
     s = model["summary"]
     cards = (
         _card(s, "mechanical", "기계적 개정") + _card(s, "review", "실질 검토") +
-        _card(s, "check", "확인 필요") + _card(s, "current", "현행 유지"))
+        _card(s, "check", "확인 필요") + _card(s, "format", "서식 정비") +
+        _card(s, "current", "현행 유지"))
     blocks = "".join(_ord_block(o) for o in model["ordinances"])
     sub = (f'전체 {s["ordinances_total"]}개 조례 중 '
            f'정비 대상 {s["ordinances_action"]}개 · 생성 {_esc(generated_at)}')

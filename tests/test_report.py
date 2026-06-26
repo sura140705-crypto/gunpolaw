@@ -55,6 +55,22 @@ def test_action_points_at_ordinance_clause():
     assert "해당 조문" in b, b
 
 
+def test_action_naked_content_change_appends_note():
+    """내용변경 + 맨몸 인용 → 내용 정비 문안에 서식 정정 안내가 덧붙는다."""
+    a = action_text(_f(cite_naked=1))
+    assert "검토" in a and "꺽쇠 서식으로 정정" in a, a
+
+
+def test_action_format_only_when_current_and_naked():
+    """내용 현행 + 맨몸 인용 → 서식 정정만 안내(내용 변경 없음)."""
+    a = action_text(_f(severity="current", change_type="동일",
+                       cite_naked=1, ord_clause="제1조"))
+    assert "서식으로 정정" in a and "내용 변경은 없음" in a, a
+    # 맨몸이 아니면(서식 정상) 이 안내는 나오지 않음
+    b = action_text(_f(severity="current", change_type="동일", cite_naked=0))
+    assert "서식으로 정정" not in b, b
+
+
 def test_split_evidence():
     old, new = _split_evidence("[당시] 가나다\n[현행] 가라다")
     assert (old, new) == ("가나다", "가라다"), (old, new)

@@ -48,7 +48,7 @@ def main(argv):
         path, s = write_report(out_path=out)
         print(f"개정 권고서 생성 → {path}")
         print(f"  정비 대상 {s['ordinances_action']}/{s['ordinances_total']}개 조례")
-        for k in ("mechanical", "review", "check", "current"):
+        for k in ("mechanical", "review", "check", "format", "current"):
             m = GRADE_META[k]
             print(f"  {m['emoji']} {m['label']:<7}: {s[k]}")
         return 0
