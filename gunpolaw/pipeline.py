@@ -38,35 +38,42 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
             continue
         # 이 법령을 인용한 조례 조문(법명only 위치) — 법령단위 finding 의 정비 위치
         law_loc = ", ".join(g.get("law_articles", []))
+        law_seq = g.get("law_seq", 0)
         law_id = link_index.get(name.replace(" ", "")) or moleg.resolve_law_id(name)
         if not law_id:
             findings.append({
                 "law_id": "", "law_name": name, "clause_label": "",
                 "category": "status", "severity": "check", "change_type": "법령미해결",
                 "detail": "법령ID 미해결 (폐지/제명변경 의심)", "ord_enforce": ord_enforce,
-                "clause_enforce": "", "evidence": "", "ord_clause": law_loc})
+                "clause_enforce": "", "old_enforce": "", "evidence": "",
+                "ord_clause": law_loc, "ord_seq": law_seq})
             continue
         if law_id not in law_body_cache:
             law_body_cache[law_id] = moleg.parse_law_articles(moleg.get_law_body(law_id))
         cur_arts = law_body_cache[law_id]
 
         old_arts = None
+        old_enforce = ""
         if deep:
             if law_id not in version_cache:
                 version_cache[law_id] = history.list_versions(name, law_id)
             vsel = history.as_of(version_cache[law_id], ord_enforce)
             if vsel:
+                old_enforce = vsel["enforce_date"]      # 당시 시행본 법령 일자
                 if vsel["mst"] not in old_cache:
                     old_cache[vsel["mst"]] = history.body_articles_by_mst(vsel["mst"])
                 old_arts = old_cache[vsel["mst"]]
 
         clause_articles = g.get("clause_articles", {})
+        clause_seq = g.get("clause_seq", {})
         for label in g["clause_labels"]:
             if deep and old_arts is not None:
-                f = checks.diff_clause(old_arts, cur_arts, label, ord_enforce, name, law_id)
+                f = checks.diff_clause(old_arts, cur_arts, label, ord_enforce,
+                                       name, law_id, old_enforce)
             else:
                 f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
             f["ord_clause"] = ", ".join(clause_articles.get(label, []))
+            f["ord_seq"] = clause_seq.get(label, 0)
             findings.append(f)
 
     return {

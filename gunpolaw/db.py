@@ -78,9 +78,11 @@ CREATE TABLE IF NOT EXISTS findings (
     severity        TEXT,            -- review(검토필요) / check(확인) / current
     change_type     TEXT,            -- 내용변경 / 번호이동 / 삭제 / 동일 (2단계)
     ord_clause      TEXT,            -- 인용한 조례 조문(제Y조) — 정비 위치
+    ord_seq         INTEGER,         -- 조례 본문 내 등장 순서(정렬용)
     detail          TEXT,
-    ord_enforce     TEXT,
-    clause_enforce  TEXT,
+    ord_enforce     TEXT,            -- 조례 시행일(당시 판단 기준일)
+    old_enforce     TEXT,            -- 당시 시행본 법령 일자(판단 기준일)
+    clause_enforce  TEXT,            -- 현행 조문 시행/개정일(판단 기준일)
     evidence        TEXT,
     created_at      TEXT
 );
@@ -102,10 +104,10 @@ def init_db(db_path=DEFAULT_DB):
     conn.executescript(SCHEMA)
     # 기존 DB 호환: 신규 컬럼 보강 (없을 때만)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
-    if "change_type" not in cols:
-        conn.execute("ALTER TABLE findings ADD COLUMN change_type TEXT")
-    if "ord_clause" not in cols:
-        conn.execute("ALTER TABLE findings ADD COLUMN ord_clause TEXT")
+    for name, decl in (("change_type", "TEXT"), ("ord_clause", "TEXT"),
+                       ("ord_seq", "INTEGER"), ("old_enforce", "TEXT")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE findings ADD COLUMN {name} {decl}")
     conn.commit()
     conn.close()
     return db_path

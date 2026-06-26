@@ -8,7 +8,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gunpolaw.report import grade_of, action_text, build_model, render_html
+from gunpolaw.report import (
+    grade_of, action_text, build_model, render_html,
+    _split_evidence, _diff_marks, _fmtdate)
 
 
 def test_grade_mapping():
@@ -51,6 +53,37 @@ def test_action_points_at_ordinance_clause():
     # 위치 미상이면 일반 문구로 폴백
     b = action_text(_f())
     assert "해당 조문" in b, b
+
+
+def test_split_evidence():
+    old, new = _split_evidence("[당시] 가나다\n[현행] 가라다")
+    assert (old, new) == ("가나다", "가라다"), (old, new)
+    assert _split_evidence("그냥 텍스트") == (None, None)
+
+
+def test_diff_marks_highlights_only_change():
+    """동일 부분은 그대로, 바뀐 토큰만 <mark> 로 감싼다."""
+    o_html, n_html = _diff_marks(
+        "이 법에서 사용하는 용어의 뜻은 다음과 같다",
+        "이 법에서 쓰는 용어의 뜻은 다음과 같다")
+    # 공통 어절은 마크 없이 보존
+    assert "이 법에서" in o_html and "용어의" in n_html
+    # 바뀐 어절만 강조
+    assert '<mark class="d">사용하는</mark>' in o_html, o_html
+    assert '<mark class="i">쓰는</mark>' in n_html, n_html
+    # 변화 없는 토큰은 마크되지 않음
+    assert "<mark" not in o_html.replace('<mark class="d">사용하는</mark>', "")
+
+
+def test_diff_marks_escapes_html():
+    o_html, _ = _diff_marks("a <b> c", "a c")
+    assert "&lt;b&gt;" in o_html and "<b>" not in o_html
+
+
+def test_fmtdate():
+    assert _fmtdate("20200101") == "2020-01-01"
+    assert _fmtdate("2020-01-01") == "2020-01-01"
+    assert _fmtdate("") == "—"
 
 
 def test_render_html_smoke():

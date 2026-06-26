@@ -82,7 +82,7 @@ def _resolve_same(last_law, kind):
     return last_law
 
 
-def _ref(name, clause, alias_source, ord_article=""):
+def _ref(name, clause, alias_source, ord_article="", ord_seq=0):
     return {
         "name": name,
         "clause": clause,
@@ -90,6 +90,7 @@ def _ref(name, clause, alias_source, ord_article=""):
         "alias_source": alias_source,
         "type": classify(name),
         "ord_article": ord_article or "",   # 인용이 등장한 조례 조문(제Y조)
+        "ord_seq": ord_seq,                 # 조례 본문 내 등장 순서(작을수록 먼저)
     }
 
 
@@ -120,6 +121,7 @@ def _extract_segments(segments):
     refs = []
     doc_aliases = {}
     last_law = None
+    seq = 0   # 본문 등장 순서(조문 순서 → 조문 내 위치순)
 
     # 1) 「법령명」 / "같은 법" 이벤트를 (조문 순서 → 위치순)으로 처리
     for no, text in norm:
@@ -130,6 +132,7 @@ def _extract_segments(segments):
             events.append((m.start(), "same", m))
         events.sort(key=lambda e: e[0])
         for _, typ, m in events:
+            seq += 1
             if typ == "law":
                 name = m.group(1).strip()
                 alias = (m.group(2) or "").strip()
@@ -138,13 +141,13 @@ def _extract_segments(segments):
                     doc_aliases[alias] = name          # inline 약칭 등록
                 if classify(name) in ("법령", "자치법규"):
                     last_law = name                    # carry-over 기준 갱신
-                refs.append(_ref(name, clause, "inline" if alias else None, no))
+                refs.append(_ref(name, clause, "inline" if alias else None, no, seq))
             else:  # same — 위치상 바로 앞 법령에 연결
                 if not last_law:
                     continue
                 resolved = _resolve_same(last_law, m.group(1))
                 clause = (m.group(2) or "").strip()
-                refs.append(_ref(resolved, clause, "carry_over", no))
+                refs.append(_ref(resolved, clause, "carry_over", no, seq))
 
     # 2) inline 정의된 약칭의 단독 사용 ("법 제30조") 해소 — 전 약칭 수집 후 전체 재스캔
     for alias, full in doc_aliases.items():
@@ -154,7 +157,8 @@ def _extract_segments(segments):
                          r'\s*(' + CLAUSE_INNER + r')')
         for no, text in norm:
             for m in pat.finditer(text):
-                refs.append(_ref(full, (m.group(1) or "").strip(), "alias", no))
+                seq += 1
+                refs.append(_ref(full, (m.group(1) or "").strip(), "alias", no, seq))
 
     return refs
 
@@ -171,8 +175,10 @@ def group_by_law(refs):
 
     Returns: {법령명: {"type", "clause_labels":[...], "alias_sources":[...],
                        "clause_articles": {상위법조라벨: [조례조문...]},
-                       "law_articles": [법명only로 인용한 조례조문...]}}
-    clause_articles/law_articles 로 "상위법 제X조 → 조례 제Y조" 역추적이 가능하다.
+                       "law_articles": [법명only로 인용한 조례조문...],
+                       "clause_seq": {상위법조라벨: 등장순서}, "law_seq": 등장순서}}
+    clause_articles/law_articles 로 "상위법 제X조 → 조례 제Y조" 역추적,
+    clause_seq/law_seq 로 조례 본문 등장 순서 정렬이 가능하다.
     자기참조/일반어(기타)는 제외.
     """
     grouped = {}
@@ -183,15 +189,23 @@ def group_by_law(refs):
             "name": r["name"], "type": r["type"],
             "clause_labels": set(), "alias_sources": set(),
             "clause_articles": {}, "law_articles": set(),
+            "clause_seq": {}, "law_seq": None,
         })
         oa = r.get("ord_article") or ""
+        sq = r.get("ord_seq") or 0
         if r["clause_labels"]:
             for lbl in r["clause_labels"]:
                 g["clause_labels"].add(lbl)
                 if oa:
                     g["clause_articles"].setdefault(lbl, set()).add(oa)
-        elif oa:
-            g["law_articles"].add(oa)          # 법명만 인용(조항 없음)
+                prev = g["clause_seq"].get(lbl)
+                if prev is None or sq < prev:
+                    g["clause_seq"][lbl] = sq
+        else:
+            if oa:
+                g["law_articles"].add(oa)      # 법명만 인용(조항 없음)
+            if g["law_seq"] is None or sq < g["law_seq"]:
+                g["law_seq"] = sq
         if r["alias_source"]:
             g["alias_sources"].add(r["alias_source"])
 
@@ -205,6 +219,8 @@ def group_by_law(refs):
                 lbl: sorted(arts, key=_clause_sort_key)
                 for lbl, arts in g["clause_articles"].items()},
             "law_articles": sorted(g["law_articles"], key=_clause_sort_key),
+            "clause_seq": dict(g["clause_seq"]),
+            "law_seq": g["law_seq"] or 0,
             "alias_sources": sorted(g["alias_sources"]),
         }
     return out

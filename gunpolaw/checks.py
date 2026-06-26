@@ -97,14 +97,16 @@ def _norm(s):
     return re.sub(r"\s+", "", s or "")
 
 
-def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_id=""):
+def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_id="",
+                old_enforce=""):
     """2단계: 조례 당시 시행본(old) vs 현행(cur) 조문 내용을 직접 비교해 확정.
 
     시스템 역할 = "검토 대상"을 유형·근거와 함께 알려주는 것. 수정 방법은 담당자 몫.
+    old_enforce: 당시 시행본 법령의 시행일자(판단 기준 날짜 표기용).
     """
     base = {"law_id": law_id, "law_name": law_name, "clause_label": clause_label,
             "ord_enforce": ord_enforce, "category": "timing", "clause_enforce": "",
-            "evidence": ""}
+            "old_enforce": old_enforce, "evidence": ""}
     old = old_arts.get(clause_label)
     cur = cur_arts.get(clause_label)
 
@@ -114,7 +116,7 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
                     "change_type": "동일", "detail": "당시 조문과 현행 내용 동일 — 검토 불필요"}
         return {**base, "severity": "review", "change_type": "내용변경",
                 "clause_enforce": cur["enforce_date"],
-                "evidence": f"[당시] {old['content'][:120]}\n[현행] {cur['content'][:120]}",
+                "evidence": f"[당시] {old['content'][:400]}\n[현행] {cur['content'][:400]}",
                 "detail": f"{clause_label} 내용이 조례 제정 당시와 달라짐 — 검토 필요"}
 
     if old and not cur:

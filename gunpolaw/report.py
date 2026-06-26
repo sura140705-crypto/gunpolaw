@@ -12,7 +12,9 @@ findings(변경 탐지 결과)를 담당자가 바로 결재·정비에 쓰는 "
   check      📋 확인        : 소재 미확인·법령미해결 — 사람 확인
   current    ✅ 현행 유지   : 변경 없음(권고서 본문엔 집계만)
 """
+import difflib
 import html
+import re
 from datetime import datetime
 
 from . import db
@@ -26,6 +28,56 @@ GRADE_META = {
     "current":    {"order": 3, "emoji": "✅", "label": "현행 유지",     "cls": "g-cur"},
 }
 GRADE_KEYS = ("mechanical", "review", "check", "current")
+
+
+# ---------- 파싱·날짜·diff 헬퍼 ----------
+def _jo_num(label):
+    """'제9조' / '제9조, 제12조' → 9 (정렬용, 첫 조문번호)."""
+    m = re.search(r"제(\d+)조", label or "")
+    return int(m.group(1)) if m else 9999
+
+
+def _clause_num(label):
+    """상위법 조 라벨 → (조, 가지) 정렬키."""
+    jo = re.search(r"제(\d+)조", label or "")
+    ga = re.search(r"의(\d+)", label or "")
+    return (int(jo.group(1)) if jo else 9999, int(ga.group(1)) if ga else 0)
+
+
+def _fmtdate(s):
+    """YYYYMMDD → YYYY-MM-DD (없으면 '—')."""
+    s = re.sub(r"[^\d]", "", str(s or ""))[:8]
+    return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 else "—"
+
+
+_EV_RE = re.compile(r"\[당시\]\s*(.*?)\n\[현행\]\s*(.*)", re.S)
+
+
+def _split_evidence(ev):
+    """'[당시] ...\\n[현행] ...' → (당시, 현행). 형식 아니면 (None, None)."""
+    m = _EV_RE.match(ev or "")
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return None, None
+
+
+_TOKEN_RE = re.compile(r"\w+|\s+|[^\w\s]", re.UNICODE)
+
+
+def _diff_marks(old, new):
+    """당시/현행 내용을 토큰 diff 하여 바뀐 부분만 <mark> 로 감싼 (당시HTML, 현행HTML)."""
+    a, b = _TOKEN_RE.findall(old or ""), _TOKEN_RE.findall(new or "")
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    o_html, n_html = [], []
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        at, bt = "".join(a[i1:i2]), "".join(b[j1:j2])
+        if op == "equal":
+            o_html.append(_esc(at))
+            n_html.append(_esc(bt))
+            continue
+        o_html.append(f'<mark class="d">{_esc(at)}</mark>' if at.strip() else _esc(at))
+        n_html.append(f'<mark class="i">{_esc(bt)}</mark>' if bt.strip() else _esc(bt))
+    return "".join(o_html), "".join(n_html)
 
 
 def grade_of(severity, change_type=""):
@@ -89,12 +141,16 @@ def build_model(db_path=db.DEFAULT_DB):
     조례는 정비 우선순위(기계적→실질→확인 순 가중)로 정렬.
     """
     conn = db.connect(db_path)
-    # 구 DB 호환: ord_clause 컬럼이 없으면 빈 값으로 대체
+    # 구 DB 호환: 없는 컬럼은 빈 값으로 대체
     fcols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
-    oc_sel = "f.ord_clause" if "ord_clause" in fcols else "'' AS ord_clause"
+
+    def sel(col, default="''"):
+        return f"f.{col}" if col in fcols else f"{default} AS {col}"
+
     rows = conn.execute(
         f"""SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
-                  {oc_sel}, f.detail, f.evidence, f.ord_enforce, f.clause_enforce,
+                  {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
+                  f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
                   o.name AS ord_name, o.enforce_date AS ord_enforce_date
            FROM findings f LEFT JOIN ordinances o ON o.mst = f.mst
            ORDER BY f.law_name, f.clause_label"""
@@ -121,14 +177,20 @@ def build_model(db_path=db.DEFAULT_DB):
                 "clause_label": r["clause_label"] or "",
                 "change_type": r["change_type"] or "",
                 "ord_clause": r["ord_clause"] or "",
+                "ord_seq": r["ord_seq"] if r["ord_seq"] is not None else 999999,
                 "action": action_text(r),
                 "evidence": r["evidence"] or "",
+                "ord_enforce": r["ord_enforce"] or o["enforce_date"],
+                "old_enforce": r["old_enforce"] or "",
                 "clause_enforce": r["clause_enforce"] or "",
             })
 
     ordinances = [o for o in by_mst.values() if o["items"]]
     for o in ordinances:
-        o["items"].sort(key=lambda it: GRADE_META[it["grade"]]["order"])
+        # 조례 조문번호 순(제1조→제2조…) → 그 안에서 본문 등장 순서 → 상위법 조 순
+        o["items"].sort(key=lambda it: (_jo_num(it.get("ord_clause")),
+                                        it.get("ord_seq", 999999),
+                                        _clause_num(it.get("clause_label"))))
 
     def prio(o):
         gr = o["grades"]
@@ -167,19 +229,36 @@ h1 { font-size:24px; margin:0 0 4px; }
          margin-right:6px; color:#fff; }
 .b-mech { background:var(--mech);} .b-rev { background:var(--rev);}
 .b-chk { background:var(--chk);}
-.item { border-top:1px solid #f3f4f6; padding:10px 0; }
-.item:first-of-type { border-top:none; }
+.artsec { margin:0 0 6px; }
+.arthd { font-size:13px; font-weight:700; color:#111827; background:#eef2ff;
+         border-left:3px solid var(--mech); padding:4px 10px; border-radius:4px;
+         margin:12px 0 4px; }
+.item { border-top:1px solid #f3f4f6; padding:9px 0 9px 10px; }
+.iline { margin-bottom:3px; }
 .item .tag { font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px;
              margin-right:8px; white-space:nowrap; }
 .t-mech { background:#dbeafe; color:#1e40af;} .t-rev { background:#fef3c7; color:#92400e;}
 .t-chk { background:#f3f4f6; color:#374151;}
-.item .act { font-size:14px; }
+.item .law { font-size:13px; font-weight:600; color:#374151; }
+.item .act { font-size:14px; margin:2px 0; }
+.basis { font-size:11.5px; color:#6b7280; margin:4px 0 6px; }
+.basis b { color:#374151; font-weight:600; }
 .item .ev { font-size:12px; color:#6b7280; white-space:pre-wrap;
             background:#f9fafb; border-radius:6px; padding:7px 9px; margin-top:6px; }
+.diff { border:1px solid #eef0f3; border-radius:6px; overflow:hidden; margin-top:6px; }
+.drow { display:flex; gap:8px; font-size:12px; padding:6px 9px; }
+.drow + .drow { border-top:1px solid #f1f3f5; }
+.dlabel { flex:0 0 34px; font-weight:700; font-size:11px; padding-top:1px; }
+.dlabel.was { color:#b91c1c; } .dlabel.now { color:#15803d; }
+.dtext { flex:1; white-space:pre-wrap; word-break:break-all; color:#374151; line-height:1.5; }
+mark.d { background:#fee2e2; color:#991b1b; text-decoration:line-through;
+         border-radius:2px; padding:0 1px; }
+mark.i { background:#dcfce7; color:#166534; border-radius:2px; padding:0 1px; }
 footer { color:#9ca3af; font-size:12px; margin-top:32px; text-align:center; }
 @media print {
   body { background:#fff; } .page { max-width:none; padding:0; }
   .ord, .card { border-color:#d1d5db; }
+  mark.d, mark.i { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 """
 
@@ -194,6 +273,49 @@ def _card(summary, key, title):
             f'<div class="t">{m["emoji"]} {title}</div></div>')
 
 
+def _primary_article(it):
+    """이 항목의 대표 조례 조문(첫 조문). 위치 미상이면 표시용 라벨."""
+    oc = (it.get("ord_clause") or "").split(",")[0].strip()
+    return oc or "(위치 미상)"
+
+
+def _basis_line(it):
+    """판단 기준 날짜 한 줄: 조례 시행 → 당시 법령본 → 현행 조문."""
+    return (
+        '<div class="basis">기준일 — '
+        f'조례 시행 <b>{_fmtdate(it.get("ord_enforce"))}</b> · '
+        f'당시 법령본 <b>{_fmtdate(it.get("old_enforce"))}</b> → '
+        f'현행 조문 <b>{_fmtdate(it.get("clause_enforce"))}</b></div>')
+
+
+def _evidence_block(it):
+    """내용변경이면 당시/현행 diff 하이라이트, 아니면 일반 근거 텍스트."""
+    old, new = _split_evidence(it.get("evidence", ""))
+    if old is not None:
+        o_html, n_html = _diff_marks(old, new)
+        return (
+            '<div class="diff">'
+            f'<div class="drow"><span class="dlabel was">당시</span>'
+            f'<span class="dtext">{o_html}</span></div>'
+            f'<div class="drow"><span class="dlabel now">현행</span>'
+            f'<span class="dtext">{n_html}</span></div></div>')
+    ev = it.get("evidence", "")
+    return f'<div class="ev">{_esc(ev)}</div>' if ev else ""
+
+
+def _item_block(it):
+    tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk"}[it["grade"]]
+    tag = it["change_type"] or GRADE_META[it["grade"]]["label"]
+    law = f'「{_esc(it["law_name"])}」 {_esc(it["clause_label"])}'.rstrip()
+    return (
+        '<div class="item">'
+        f'<div class="iline"><span class="tag {tag_cls}">{_esc(tag)}</span>'
+        f'<span class="law">{law}</span></div>'
+        f'<div class="act">{_esc(it["action"])}</div>'
+        f'{_basis_line(it)}'
+        f'{_evidence_block(it)}</div>')
+
+
 def _ord_block(o):
     gr = o["grades"]
     badges = []
@@ -201,19 +323,31 @@ def _ord_block(o):
         if gr[key]:
             badges.append(f'<span class="badge {bcls}">'
                           f'{GRADE_META[key]["emoji"]} {GRADE_META[key]["label"]} {gr[key]}</span>')
-    items = []
+
+    # 조례 조문 순서대로 묶어서, 각 조문 아래 언급된 법령을 등장 순서로 나열
+    sections, cur_art, buf = [], None, []
     for it in o["items"]:
-        tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk"}[it["grade"]]
-        tag = (it["change_type"] or GRADE_META[it["grade"]]["label"])
-        ev = f'<div class="ev">{_esc(it["evidence"])}</div>' if it["evidence"] else ""
-        items.append(
-            f'<div class="item"><span class="tag {tag_cls}">{_esc(tag)}</span>'
-            f'<span class="act">{_esc(it["action"])}</span>{ev}</div>')
+        art = _primary_article(it)
+        if art != cur_art:
+            if buf:
+                sections.append((cur_art, buf))
+            cur_art, buf = art, []
+        buf.append(it)
+    if buf:
+        sections.append((cur_art, buf))
+
+    secs_html = []
+    for art, group in sections:
+        body = "".join(_item_block(it) for it in group)
+        secs_html.append(
+            f'<div class="artsec"><div class="arthd">조례 {_esc(art)}</div>{body}</div>')
+
     return (
         f'<div class="ord"><h2>{_esc(o["name"])}</h2>'
-        f'<div class="meta">시행 {_esc(o["enforce_date"])} · 정비 항목 {len(o["items"])}건</div>'
+        f'<div class="meta">시행 {_fmtdate(o["enforce_date"])} · 정비 항목 {len(o["items"])}건 · '
+        f'조례 조문 순서로 정렬</div>'
         f'<div class="badges">{"".join(badges)}</div>'
-        f'{"".join(items)}</div>')
+        f'{"".join(secs_html)}</div>')
 
 
 def render_html(model, generated_at="", title="군포시 자치법규 정비 권고서"):
