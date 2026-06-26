@@ -32,6 +32,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     version_cache = version_cache if version_cache is not None else {}
     old_cache = old_cache if old_cache is not None else {}
     findings = []
+    fetched_laws = {}   # 이번 호출에서 새로 받은 법령(캐시 미스) — 배치가 DB 영속
 
     for name, g in grouped.items():
         if g["type"] != "법령":          # 자치법규간 참조는 제외
@@ -55,6 +56,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
             continue
         if law_id not in law_body_cache:
             law_body_cache[law_id] = moleg.parse_law_articles(moleg.get_law_body(law_id))
+            fetched_laws[law_id] = {"name": name, "articles": law_body_cache[law_id]}
         cur_arts = law_body_cache[law_id]
 
         old_arts = None
@@ -86,6 +88,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         "ordinance": meta,
         "body_xml": body.get("xml", ""),
         "findings": findings,
+        "fetched_laws": fetched_laws,
         "summary": checks.summarize(findings),
     }
 

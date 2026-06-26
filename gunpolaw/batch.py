@@ -4,12 +4,23 @@
 "누적 오류 일회성 정리"의 본체. 시군 org 코드만 바꾸면 타 지자체 확장.
 findings 테이블은 매 실행마다 갱신(스냅샷). 법령 본문은 실행 내 1회만 호출.
 """
+import re
 import time
 from datetime import datetime
 
 from . import db
 from . import moleg
 from .pipeline import analyze_ordinance
+
+_LABEL_RE = re.compile(r"제(\d+)조(?:의(\d+))?")
+
+
+def _label_nums(label):
+    """'제30조'→(30,0), '제15조의2'→(15,2)."""
+    m = _LABEL_RE.search(label or "")
+    if not m:
+        return (0, 0)
+    return (int(m.group(1)), int(m.group(2) or 0))
 
 # 군포 기본값. 목록(ordin)은 광역 org + 시군 sborg, lnkOrg는 sborg를 org로 사용.
 GUNPO_ORG = "6410000"     # 경기도
@@ -74,8 +85,10 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
     if verbose:
         print(f"분석 대상 {len(msts)}건 (법령ID 보강사전 {len(link_index)}개)\n")
 
-    # 2) findings 스냅샷 재작성
+    # 2) findings·법령본문 스냅샷 재작성(현행 기준으로 갈아끼움)
     conn.execute("DELETE FROM findings")
+    conn.execute("DELETE FROM laws")
+    conn.execute("DELETE FROM law_articles")
     conn.commit()
 
     law_cache, version_cache, old_cache, agg = {}, {}, {}, {}
@@ -109,6 +122,20 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
                  f.get("old_enforce", ""), f["clause_enforce"],
                  (f["evidence"] or "")[:8000], f.get("cite_naked", 0), _now()))
             agg[f["severity"]] = agg.get(f["severity"], 0) + 1
+        # 이번에 새로 받은 법령의 현행 본문·조문을 영속(서빙은 DB만 읽음 — 라이브 호출 제거)
+        for law_id, lw in res.get("fetched_laws", {}).items():
+            conn.execute("INSERT OR REPLACE INTO laws(law_id, name, fetched_at) VALUES (?,?,?)",
+                         (law_id, lw["name"], _now()))
+            for label, a in lw["articles"].items():
+                jo, ga = _label_nums(label)
+                conn.execute(
+                    """INSERT OR REPLACE INTO law_articles
+                       (law_id, label, jo, ga, title, enforce_date,
+                        moved_from, moved_to, changed, content)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (law_id, label, jo, ga, a.get("title", ""), a.get("enforce_date", ""),
+                     a.get("moved_from", ""), a.get("moved_to", ""),
+                     1 if a.get("changed") else 0, a.get("content", "")))
         conn.commit()
         if verbose:
             nonc = sum(1 for f in res["findings"] if f["severity"] != "current")
@@ -117,8 +144,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
 
     # 배치 스냅샷 stamp — UI 기준일 배너·타 시군 재사용 설정
     findings_n = conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
-    laws_n = conn.execute(
-        "SELECT COUNT(DISTINCT law_id) FROM findings WHERE law_id != ''").fetchone()[0]
+    laws_n = conn.execute("SELECT COUNT(*) FROM laws").fetchone()[0]
     conn.execute(
         """INSERT OR REPLACE INTO batch_meta
            (id, org, sborg, region_name, batch_date, ordinances_n, laws_n, findings_n, deep, status)
