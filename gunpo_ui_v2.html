@@ -359,17 +359,27 @@ tr:hover{background:#f8fafc}
 </div>
 </div>
 
-<!-- ========== STEP 3: 조항 단위 시점 검증 ========== -->
+<!-- ========== STEP 3: 개정 권고 (조례 조문 기준) ========== -->
 <div id="panel-check" class="panel">
 <div class="help">
-  💡 각 조항의 <strong>법제처 공식 조문시행일자</strong>를 직접 조회해 조례 제정일과 비교합니다.<br>
-  1년 이상 차이 → 🚨 구법 인용 위험 / 30일~1년 → ⚠️ 검토 권고 / 조문 이동 → 🔄 추적 / 삭제 → ❌
+  💡 사전 전수분석 결과로 <strong>이 조례의 어느 조문</strong>을 상위법 변경에 맞춰 정비해야 하는지 권고합니다.<br>
+  🔧 기계적 개정(번호 정정) / ⚠️ 실질 검토(내용변경·삭제) / 📋 확인 — 각 항목에 당시→현행 내용 diff 포함.
 </div>
-<div class="card"><h2>⚖️ 조항 단위 시점 검증</h2>
+<div class="card"><h2>🧭 개정 권고 뷰 (조례 조문 기준)</h2>
+<button class="btn btn-p" id="brec" onclick="loadRecommend()">▶ 선택 조례 권고 불러오기</button>
+<button class="btn btn-s btn-sm" onclick="printReco()" style="margin-left:6px">🖨 인쇄/PDF</button>
+<span id="recoMeta" style="margin-left:10px;font-size:12px;color:var(--text-light)"></span>
+<div class="log" id="recoLog" style="margin-top:10px">대기 중...</div></div>
+<div id="recoOut"></div>
+
+<details style="margin-top:14px">
+<summary style="cursor:pointer;color:var(--text-light);font-size:13px">⚖️ 실시간 재검증(법령 단위, 구버전) 펼치기</summary>
+<div class="card" style="margin-top:8px"><h2>조항 단위 시점 검증(실시간)</h2>
 <button class="btn btn-p" id="bc" onclick="doCheck()">▶ 검토 시작 (조항별)</button>
 <div class="pbar" style="margin-top:12px"><div class="pfill" id="cp"></div></div>
 <div class="log" id="clog">대기 중...</div></div>
 <div id="cr"></div>
+</details>
 </div>
 
 <!-- ========== STEP 4: 보고서 ========== -->
@@ -396,7 +406,7 @@ const S = {ords:[], sel:[], ana:{}, chk:[], page:1, display:20, total:0};
 const steps = [
   {id:'search',  num:'STEP 1', label:'📋 조례 수집/검색'},
   {id:'analyze', num:'STEP 2', label:'🔍 인용 + 조항 추출'},
-  {id:'check',   num:'STEP 3', label:'⚖️ 조항별 시점 검증'},
+  {id:'check',   num:'STEP 3', label:'🧭 개정 권고'},
   {id:'report',  num:'결과',   label:'📊 검토 보고서'}
 ];
 const nav = document.getElementById('stepNav');
@@ -1216,6 +1226,51 @@ function toggleExcluded(){
   const e = document.getElementById('excludedList');
   if(!e) return;
   e.style.display = e.style.display==='none' ? 'block' : 'none';
+}
+
+// === STEP 3: 개정 권고 뷰 (사전 배치 findings 기반, report.py 렌더 재사용) ===
+let _recoFrame = null;
+async function loadRecommend(){
+  const L=document.getElementById('recoLog'), B=document.getElementById('brec'),
+        M=document.getElementById('recoMeta'), OUT=document.getElementById('recoOut');
+  // STEP1 선택이 있으면 그것, 없으면 STEP2에서 분석된 조례 전체
+  const sel = S.sel.length ? S.sel.slice()
+            : Object.keys(S.ana).map(id => ({id, name:(S.ana[id]||{}).name||id}));
+  if(!sel.length){
+    L.innerHTML=''; log(L,'⚠️ 선택된 조례가 없습니다. STEP 1에서 조례를 선택하세요.','warn'); return;
+  }
+  B.disabled=true; L.innerHTML=''; OUT.innerHTML=''; M.textContent='';
+  log(L,'🧭 '+sel.length+'개 조례의 개정 권고를 불러옵니다...','info');
+  let css='', frags=[], act=0, none=0, miss=0;
+  for(let i=0;i<sel.length;i++){
+    const o=sel[i];
+    const r=await api('recommend',{mst:o.id});
+    if(!r || r.error){ miss++; log(L,'  ❌ '+(o.name||o.id)+': '+((r&&r.error)||'실패'),'err'); continue; }
+    if(r.css) css=r.css;
+    if(r.found && r.html){ frags.push(r.html); act++;
+      log(L,'  ✅ '+r.name+' — 정비 '+r.items_count+'건','ok'); }
+    else { none++; log(L,'  ・ '+(r.name||o.name||o.id)+' — 정비 대상 없음(현행 유지)','info'); }
+  }
+  if(!css){ log(L,'권고 데이터를 불러오지 못했습니다(사전 배치 gunpolaw.db 필요).','err'); B.disabled=false; return; }
+  const inner = frags.length ? frags.join('')
+    : '<p style="padding:20px;color:#6b7280">선택한 조례에 정비 대상 항목이 없습니다(모두 현행 유지).</p>';
+  // 권고서 CSS가 body/.page 전역을 건드리므로 iframe으로 스타일 격리(인쇄도 깔끔)
+  const doc='<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><style>'+css
+           +'\nbody{background:#fff}</style></head><body>'
+           +'<div class="page" style="padding:8px 4px">'+inner+'</div></body></html>';
+  const f=document.createElement('iframe');
+  f.setAttribute('title','개정 권고 뷰');
+  f.style.cssText='width:100%;border:1px solid #e5e7eb;border-radius:10px;background:#fff';
+  f.onload=function(){ try{ f.style.height=(f.contentDocument.body.scrollHeight+24)+'px'; }catch(e){} };
+  f.srcdoc=doc; OUT.appendChild(f); _recoFrame=f;
+  M.textContent='정비 대상 '+act+'개 · 현행 유지 '+none+'개'+(miss?(' · 오류 '+miss):'');
+  log(L,'✅ 완료','ok');
+  B.disabled=false;
+}
+function printReco(){
+  if(!_recoFrame){ alert('먼저 권고를 불러오세요.'); return; }
+  _recoFrame.contentWindow.focus();
+  _recoFrame.contentWindow.print();
 }
 
 // === STEP 3: 조항별 시점 검증 ===

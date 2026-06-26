@@ -28,6 +28,14 @@ from pathlib import Path
 
 import phase6  # 조항 단위 시점 검증 모듈
 
+# STEP3 권고 뷰: 사전 배치한 gunpolaw.db findings 를 조례별 행동지시로 렌더(report.py 재사용).
+# 패키지/DB 없으면 권고 뷰만 비활성(서버 기동·기존 기능엔 영향 없음).
+try:
+    from gunpolaw.report import recommend_fragment as _recommend_fragment
+except Exception as _gl_err:
+    _recommend_fragment = None
+    print(f"  [권고뷰 비활성] gunpolaw 임포트 실패: {_gl_err}")
+
 # ============================================================
 # 설정
 # ============================================================
@@ -1206,6 +1214,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 ref_name = params.get("ref_name", "")
                 ref_type = params.get("ref_type", "법령")
                 result = check_freshness(ord_date, ref_name, ref_type)
+
+            elif path == "/api/recommend":
+                # 사전 배치(gunpolaw.db)에서 이 조례의 개정 권고 뷰(조례 조문 → 상위법 변경) 반환
+                mst = (params.get("mst") or params.get("id", "")).strip()
+                if _recommend_fragment is None:
+                    result = {"error": "권고 뷰 비활성(gunpolaw 패키지/배치 필요)"}
+                elif not mst:
+                    result = {"error": "mst 필요"}
+                else:
+                    result = _recommend_fragment(mst)
 
             # ----- Phase 6 -----
             elif path == "/api/check_clause":

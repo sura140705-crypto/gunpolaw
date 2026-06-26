@@ -137,11 +137,12 @@ def action_text(f):
 
 
 # ---------- DB → 보고 모델 ----------
-def build_model(db_path=db.DEFAULT_DB):
+def build_model(db_path=db.DEFAULT_DB, mst=None):
     """findings + ordinances → 권고서 렌더 모델.
 
     {summary:{...}, ordinances:[{name, enforce_date, grades:{}, items:[...]}, ...]}
     조례는 정비 우선순위(기계적→실질→확인 순 가중)로 정렬.
+    mst 지정 시 해당 조례 1건만 모델링(UI 권고 뷰용).
     """
     conn = db.connect(db_path)
     # 구 DB 호환: 없는 컬럼은 빈 값으로 대체
@@ -150,13 +151,18 @@ def build_model(db_path=db.DEFAULT_DB):
     def sel(col, default="''"):
         return f"f.{col}" if col in fcols else f"{default} AS {col}"
 
+    where, args = "", []
+    if mst is not None:
+        where = "WHERE f.mst = ?"
+        args = [str(mst)]
     rows = conn.execute(
         f"""SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
                   f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
                   o.name AS ord_name, o.enforce_date AS ord_enforce_date
            FROM findings f LEFT JOIN ordinances o ON o.mst = f.mst
-           ORDER BY f.law_name, f.clause_label"""
+           {where}
+           ORDER BY f.law_name, f.clause_label""", args
     ).fetchall()
     conn.close()
 
@@ -369,6 +375,25 @@ def render_html(model, generated_at="", title="군포시 자치법규 정비 권
         '<footer>본 권고서는 인용 조항의 시점·내용 비교로 자동 생성된 초안이며, '
         '최종 개정 판단은 담당 부서의 검토를 따릅니다.</footer>'
         "</div></body></html>")
+
+
+def recommend_fragment(mst, db_path=db.DEFAULT_DB):
+    """단일 조례(mst)의 권고 뷰 조각 — UI(STEP3) 임베드용.
+
+    반환: {found, mst, name, grades, items_count, html, css}
+      - html : 권고서와 동일 마크업의 조례 1건 블록(<div class="ord">…). 정비항목 0이면 빈 문자열.
+      - css  : 권고서 CSS(_CSS). 페이지에 1회만 주입하면 됨.
+    findings 가 모두 current(현행)면 found=False, html='' (정비 불필요).
+    """
+    model = build_model(db_path, mst=mst)
+    ords = model["ordinances"]
+    if not ords:
+        return {"found": False, "mst": str(mst), "name": "", "grades": {},
+                "items_count": 0, "html": "", "css": _CSS}
+    o = ords[0]
+    return {"found": True, "mst": str(mst), "name": o["name"],
+            "grades": o["grades"], "items_count": len(o["items"]),
+            "html": _ord_block(o), "css": _CSS}
 
 
 def write_report(db_path=db.DEFAULT_DB, out_path="개정권고서.html", generated_at=None):
