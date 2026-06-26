@@ -45,9 +45,12 @@ def _clause_num(label):
 
 
 def _fmtdate(s):
-    """YYYYMMDD → YYYY-MM-DD (없으면 '—')."""
-    s = re.sub(r"[^\d]", "", str(s or ""))[:8]
-    return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 else "—"
+    """YYYYMMDD → YYYY-MM-DD. 날짜 아닌 라벨('원제정')은 그대로, 빈값은 '—'."""
+    raw = str(s or "").strip()
+    digits = re.sub(r"[^\d]", "", raw)[:8]
+    if len(digits) == 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return raw if raw else "—"
 
 
 _EV_RE = re.compile(r"\[당시\]\s*(.*?)\n\[현행\]\s*(.*)", re.S)
