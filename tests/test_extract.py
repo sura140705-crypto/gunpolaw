@@ -9,7 +9,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gunpolaw.extract import extract_citations, group_by_law
+from gunpolaw.extract import (
+    extract_citations, extract_citations_by_article, group_by_law)
 
 
 def _labels(grouped, name):
@@ -67,6 +68,40 @@ def test_self_reference_not_captured_as_law():
     text = '이 조례 제5조에 따른 위원회는 제8조의 사무를 처리한다.'
     g = group_by_law(extract_citations(text))
     assert g == {}, g
+
+
+def test_ord_article_tagging():
+    """인용이 등장한 조례 조문(제Y조)이 clause_articles 로 역추적되어야 한다.
+
+    A+B 목표: "상위법 제X조가 바뀌었으니 → 이 조례 제Y조를 고쳐라".
+    """
+    articles = [
+        {"no": "제3조", "body": "위원회는 「건축법」 제11조에 따라 심의한다."},
+        {"no": "제7조", "body": "「건축법」 제11조 및 제14조를 준용한다."},
+    ]
+    g = group_by_law(extract_citations_by_article(articles))
+    ca = g["건축법"]["clause_articles"]
+    assert ca["제11조"] == ["제3조", "제7조"], ca       # 제11조는 두 조문에서 인용
+    assert ca["제14조"] == ["제7조"], ca
+
+
+def test_carryover_crosses_article_boundary():
+    """'같은 법'이 앞 조문에서 정의된 법령에 연결되어야 한다(조문 경계 넘김)."""
+    articles = [
+        {"no": "제2조", "body": "「벤처투자 촉진에 관한 법률」 제12조에 따른다."},
+        {"no": "제3조", "body": "같은 법 제50조에 따른 조합을 둔다."},
+    ]
+    g = group_by_law(extract_citations_by_article(articles))
+    ca = g["벤처투자 촉진에 관한 법률"]["clause_articles"]
+    assert ca["제50조"] == ["제3조"], ca
+
+
+def test_law_name_only_tracks_article():
+    """법명만 인용(조항 없음)도 law_articles 로 위치를 보존한다."""
+    articles = [{"no": "제1조", "body": "이 조례는 「민원 처리에 관한 법률」에 근거한다."}]
+    g = group_by_law(extract_citations_by_article(articles))
+    assert g["민원 처리에 관한 법률"]["law_articles"] == ["제1조"]
+    assert g["민원 처리에 관한 법률"]["clause_labels"] == []
 
 
 def _run():

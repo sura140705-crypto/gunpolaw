@@ -8,7 +8,7 @@
 from . import moleg
 from . import checks
 from . import history
-from .extract import extract_citations, group_by_law
+from .extract import extract_citations_by_article, group_by_law
 
 
 def analyze_ordinance(mst, link_index=None, law_cache=None,
@@ -26,7 +26,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     meta = body["meta"]
     ord_enforce = meta["enforce_date"]
 
-    grouped = group_by_law(extract_citations(body["full_text"]))
+    grouped = group_by_law(extract_citations_by_article(body["articles"]))
     link_index = link_index or {}
     law_body_cache = law_cache if law_cache is not None else {}
     version_cache = version_cache if version_cache is not None else {}
@@ -36,13 +36,15 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     for name, g in grouped.items():
         if g["type"] != "법령":          # 자치법규간 참조는 제외
             continue
+        # 이 법령을 인용한 조례 조문(법명only 위치) — 법령단위 finding 의 정비 위치
+        law_loc = ", ".join(g.get("law_articles", []))
         law_id = link_index.get(name.replace(" ", "")) or moleg.resolve_law_id(name)
         if not law_id:
             findings.append({
                 "law_id": "", "law_name": name, "clause_label": "",
                 "category": "status", "severity": "check", "change_type": "법령미해결",
                 "detail": "법령ID 미해결 (폐지/제명변경 의심)", "ord_enforce": ord_enforce,
-                "clause_enforce": "", "evidence": ""})
+                "clause_enforce": "", "evidence": "", "ord_clause": law_loc})
             continue
         if law_id not in law_body_cache:
             law_body_cache[law_id] = moleg.parse_law_articles(moleg.get_law_body(law_id))
@@ -58,13 +60,14 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                     old_cache[vsel["mst"]] = history.body_articles_by_mst(vsel["mst"])
                 old_arts = old_cache[vsel["mst"]]
 
+        clause_articles = g.get("clause_articles", {})
         for label in g["clause_labels"]:
             if deep and old_arts is not None:
-                findings.append(
-                    checks.diff_clause(old_arts, cur_arts, label, ord_enforce, name, law_id))
+                f = checks.diff_clause(old_arts, cur_arts, label, ord_enforce, name, law_id)
             else:
-                findings.append(
-                    checks.check_clause(cur_arts, label, ord_enforce, name, law_id))
+                f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
+            f["ord_clause"] = ", ".join(clause_articles.get(label, []))
+            findings.append(f)
 
     return {
         "ordinance": meta,

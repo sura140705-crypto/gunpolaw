@@ -82,68 +82,97 @@ def _resolve_same(last_law, kind):
     return last_law
 
 
-def _ref(name, clause, alias_source):
+def _ref(name, clause, alias_source, ord_article=""):
     return {
         "name": name,
         "clause": clause,
         "clause_labels": [t["label"] for t in tokenize_clauses(clause)],
         "alias_source": alias_source,
         "type": classify(name),
+        "ord_article": ord_article or "",   # 인용이 등장한 조례 조문(제Y조)
     }
 
 
 def extract_citations(text):
-    """본문에서 (법령명, 조항) 인용을 추출.
+    """본문 문자열 1개에서 인용 추출 (조례 조문 위치 태깅 없음, 하위호환)."""
+    return _extract_segments([("", text)])
 
-    위치 기반 단일 패스로 「법령명」과 "같은 법"을 함께 훑어,
-    각 carry-over를 바로 앞 법령에 정확히 연결한다.
+
+def extract_citations_by_article(articles):
+    """조례 조문(조)별로 인용 추출 — ref마다 ord_article(인용이 등장한 조례 조문) 태깅.
+
+    조문을 본문 순서대로 단일 패스 처리하므로 carry-over('같은 법')·inline 약칭이
+    조문 경계를 넘어도 직전 법령에 정확히 연결된다. articles: get_ordinance_body 의
+    [{"no","body",...}] 목록.
     """
-    text = normalize_text(text)
+    segs = [(a.get("no") or "", a.get("body") or "")
+            for a in articles if a.get("body")]
+    return _extract_segments(segs)
 
-    # 1) 「법령명」 / "같은 법" 이벤트를 위치순으로 병합
-    events = []
-    for m in LAW_CITE_RE.finditer(text):
-        events.append((m.start(), "law", m))
-    for m in SAME_LAW_RE.finditer(text):
-        events.append((m.start(), "same", m))
-    events.sort(key=lambda e: e[0])
 
+def _extract_segments(segments):
+    """[(article_no, text)] 순서열 → refs.
+
+    위치 기반 단일 패스로 「법령명」과 "같은 법"을 함께 훑어, 각 carry-over를
+    바로 앞 법령에 정확히 연결한다. last_law/약칭은 세그먼트(조문) 순서로 이어진다.
+    """
+    norm = [(no, normalize_text(t)) for no, t in segments]
     refs = []
     doc_aliases = {}
     last_law = None
-    for _, typ, m in events:
-        if typ == "law":
-            name = m.group(1).strip()
-            alias = (m.group(2) or "").strip()
-            clause = (m.group(3) or "").strip()
-            if alias:
-                doc_aliases[alias] = name          # inline 약칭 등록
-            if classify(name) in ("법령", "자치법규"):
-                last_law = name                    # carry-over 기준 갱신
-            refs.append(_ref(name, clause, "inline" if alias else None))
-        else:  # same — 위치상 바로 앞 법령에 연결
-            if not last_law:
-                continue
-            resolved = _resolve_same(last_law, m.group(1))
-            clause = (m.group(2) or "").strip()
-            refs.append(_ref(resolved, clause, "carry_over"))
 
-    # 2) inline 정의된 약칭의 단독 사용 ("법 제30조") 해소
+    # 1) 「법령명」 / "같은 법" 이벤트를 (조문 순서 → 위치순)으로 처리
+    for no, text in norm:
+        events = []
+        for m in LAW_CITE_RE.finditer(text):
+            events.append((m.start(), "law", m))
+        for m in SAME_LAW_RE.finditer(text):
+            events.append((m.start(), "same", m))
+        events.sort(key=lambda e: e[0])
+        for _, typ, m in events:
+            if typ == "law":
+                name = m.group(1).strip()
+                alias = (m.group(2) or "").strip()
+                clause = (m.group(3) or "").strip()
+                if alias:
+                    doc_aliases[alias] = name          # inline 약칭 등록
+                if classify(name) in ("법령", "자치법규"):
+                    last_law = name                    # carry-over 기준 갱신
+                refs.append(_ref(name, clause, "inline" if alias else None, no))
+            else:  # same — 위치상 바로 앞 법령에 연결
+                if not last_law:
+                    continue
+                resolved = _resolve_same(last_law, m.group(1))
+                clause = (m.group(2) or "").strip()
+                refs.append(_ref(resolved, clause, "carry_over", no))
+
+    # 2) inline 정의된 약칭의 단독 사용 ("법 제30조") 해소 — 전 약칭 수집 후 전체 재스캔
     for alias, full in doc_aliases.items():
         if not alias:
             continue
         pat = re.compile(r'(?<![「\w])' + re.escape(alias) +
                          r'\s*(' + CLAUSE_INNER + r')')
-        for m in pat.finditer(text):
-            refs.append(_ref(full, (m.group(1) or "").strip(), "alias"))
+        for no, text in norm:
+            for m in pat.finditer(text):
+                refs.append(_ref(full, (m.group(1) or "").strip(), "alias", no))
 
     return refs
+
+
+def _clause_sort_key(label):
+    jo = re.search(r"제(\d+)조", label)
+    ga = re.search(r"의(\d+)", label)
+    return (int(jo.group(1)) if jo else 9999,
+            int(ga.group(1)) if ga else 0)
 
 
 def group_by_law(refs):
     """추출 ref들을 법령명 단위로 묶어 조 라벨을 합친다.
 
-    Returns: {법령명: {"type","clause_labels":[...],"alias_sources":[...]}}
+    Returns: {법령명: {"type", "clause_labels":[...], "alias_sources":[...],
+                       "clause_articles": {상위법조라벨: [조례조문...]},
+                       "law_articles": [법명only로 인용한 조례조문...]}}
+    clause_articles/law_articles 로 "상위법 제X조 → 조례 제Y조" 역추적이 가능하다.
     자기참조/일반어(기타)는 제외.
     """
     grouped = {}
@@ -153,23 +182,29 @@ def group_by_law(refs):
         g = grouped.setdefault(r["name"], {
             "name": r["name"], "type": r["type"],
             "clause_labels": set(), "alias_sources": set(),
+            "clause_articles": {}, "law_articles": set(),
         })
-        g["clause_labels"].update(r["clause_labels"])
+        oa = r.get("ord_article") or ""
+        if r["clause_labels"]:
+            for lbl in r["clause_labels"]:
+                g["clause_labels"].add(lbl)
+                if oa:
+                    g["clause_articles"].setdefault(lbl, set()).add(oa)
+        elif oa:
+            g["law_articles"].add(oa)          # 법명만 인용(조항 없음)
         if r["alias_source"]:
             g["alias_sources"].add(r["alias_source"])
-
-    def sort_key(label):
-        jo = re.search(r"제(\d+)조", label)
-        ga = re.search(r"의(\d+)", label)
-        return (int(jo.group(1)) if jo else 9999,
-                int(ga.group(1)) if ga else 0)
 
     out = {}
     for name, g in grouped.items():
         out[name] = {
             "name": name,
             "type": g["type"],
-            "clause_labels": sorted(g["clause_labels"], key=sort_key),
+            "clause_labels": sorted(g["clause_labels"], key=_clause_sort_key),
+            "clause_articles": {
+                lbl: sorted(arts, key=_clause_sort_key)
+                for lbl, arts in g["clause_articles"].items()},
+            "law_articles": sorted(g["law_articles"], key=_clause_sort_key),
             "alias_sources": sorted(g["alias_sources"]),
         }
     return out

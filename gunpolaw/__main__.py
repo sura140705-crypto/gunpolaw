@@ -65,7 +65,9 @@ def main(argv):
         tag = SEV_LABEL.get(f["severity"], f["severity"])
         ct = f.get("change_type", "")
         loc = f["clause_label"] or "(법령단위)"
-        print(f"[{tag}{('/'+ct) if ct else ''}] 「{f['law_name']}」 {loc}")
+        here = f.get("ord_clause", "")
+        head = f"[{tag}{('/'+ct) if ct else ''}] 「{f['law_name']}」 {loc}"
+        print(head + (f"  ← 조례 {here}" if here else ""))
         print(f"      {f['detail']}")
     return 0
 

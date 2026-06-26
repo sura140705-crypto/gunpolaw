@@ -50,27 +50,35 @@ def _get(f, key):
 
 # ---------- 행동 지시 문안 ----------
 def action_text(f):
-    """finding 1건 → 담당자 행동 지시 한 문장 (등급·변경유형별 템플릿)."""
+    """finding 1건 → 담당자 행동 지시 한 문장 (등급·변경유형별 템플릿).
+
+    답의 주체를 조례 쪽으로: "「상위법」 제X조가 바뀌었으니 → 이 조례 제Y조를 정비".
+    ord_clause(인용한 조례 조문)가 있으면 정비 위치를 직접 가리킨다.
+    """
     law = _get(f, "law_name") or "(법령명 미상)"
     clause = _get(f, "clause_label")
     ct = _get(f, "change_type")
+    here = _get(f, "ord_clause")
     g = grade_of(_get(f, "severity"), ct)
+    loc = f"이 조례 {here}" if here else "이 조례의 해당 조문"
 
     if g == "mechanical":
         # detail 안에 "제X조 → 제Y조" 이동처 안내가 들어 있음
-        return f"「{law}」 {clause} 인용을 현행 조문번호로 정정 — {_get(f, 'detail')}"
+        return f"「{law}」 {clause} 인용을 현행 조문번호로 정정 ({loc}) — {_get(f, 'detail')}"
     if g == "review":
         if ct == "내용변경":
-            return (f"「{law}」 {clause} 개정 내용을 반영하여 해당 조문을 검토·정비")
+            return f"「{law}」 {clause} 개정 내용을 반영하여 {loc}을(를) 검토·정비"
         if ct == "삭제":
-            return (f"「{law}」 {clause} 삭제·통합 여부를 확인하고 인용을 정비")
-        return f"「{law}」 {clause} 변경 사항을 검토하여 조문 정비"
+            return f"「{law}」 {clause} 삭제·통합 여부를 확인하고 {loc}의 인용을 정비"
+        if ct == "번호이동":
+            return f"「{law}」 {clause} 조문번호 이동 — {loc}의 인용 조문번호 정정"
+        return f"「{law}」 {clause} 변경 사항을 검토하여 {loc} 정비"
     # check
     if ct == "법령미해결":
-        return f"「{law}」 제명변경·폐지 여부를 확인하고 인용 법령명을 정정"
+        return f"「{law}」 제명변경·폐지 여부를 확인하고 {loc}의 인용 법령명을 정정"
     if ct == "당시부재":
-        return f"「{law}」 {clause} 인용 시점을 확인 (제정 당시 부재)"
-    return f"「{law}」 {clause} 소재를 확인 (삭제·이동·오기 여부)"
+        return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
+    return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
 
 
 # ---------- DB → 보고 모델 ----------
@@ -81,9 +89,12 @@ def build_model(db_path=db.DEFAULT_DB):
     조례는 정비 우선순위(기계적→실질→확인 순 가중)로 정렬.
     """
     conn = db.connect(db_path)
+    # 구 DB 호환: ord_clause 컬럼이 없으면 빈 값으로 대체
+    fcols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
+    oc_sel = "f.ord_clause" if "ord_clause" in fcols else "'' AS ord_clause"
     rows = conn.execute(
-        """SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
-                  f.detail, f.evidence, f.ord_enforce, f.clause_enforce,
+        f"""SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
+                  {oc_sel}, f.detail, f.evidence, f.ord_enforce, f.clause_enforce,
                   o.name AS ord_name, o.enforce_date AS ord_enforce_date
            FROM findings f LEFT JOIN ordinances o ON o.mst = f.mst
            ORDER BY f.law_name, f.clause_label"""
@@ -109,6 +120,7 @@ def build_model(db_path=db.DEFAULT_DB):
                 "law_name": r["law_name"] or "",
                 "clause_label": r["clause_label"] or "",
                 "change_type": r["change_type"] or "",
+                "ord_clause": r["ord_clause"] or "",
                 "action": action_text(r),
                 "evidence": r["evidence"] or "",
                 "clause_enforce": r["clause_enforce"] or "",

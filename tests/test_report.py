@@ -44,6 +44,15 @@ def test_action_unresolved_law():
     assert "제명변경" in a and "폐지" in a
 
 
+def test_action_points_at_ordinance_clause():
+    """ord_clause 가 있으면 정비 위치(이 조례 제Y조)를 직접 가리켜야 한다."""
+    a = action_text(_f(ord_clause="제7조"))
+    assert "이 조례 제7조" in a, a
+    # 위치 미상이면 일반 문구로 폴백
+    b = action_text(_f())
+    assert "해당 조문" in b, b
+
+
 def test_render_html_smoke():
     model = {
         "summary": {"mechanical": 1, "review": 2, "check": 1, "current": 5,
