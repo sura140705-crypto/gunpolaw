@@ -130,6 +130,12 @@ def init_db(db_path=DEFAULT_DB):
     for name, decl in (("dept", "TEXT"), ("phone", "TEXT")):
         if name not in ocols:
             conn.execute(f"ALTER TABLE ordinances ADD COLUMN {name} {decl}")
+    ccols = [r[1] for r in conn.execute("PRAGMA table_info(citations)")]
+    for name, decl in (("span_start", "INTEGER"), ("span_end", "INTEGER"),
+                       ("cite_naked", "INTEGER"), ("ord_seq", "INTEGER"),
+                       ("cite_type", "TEXT")):
+        if name not in ccols:
+            conn.execute(f"ALTER TABLE citations ADD COLUMN {name} {decl}")
     conn.commit()
     conn.close()
     return db_path

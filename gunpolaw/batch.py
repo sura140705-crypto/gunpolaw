@@ -89,6 +89,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
     conn.execute("DELETE FROM findings")
     conn.execute("DELETE FROM laws")
     conn.execute("DELETE FROM law_articles")
+    conn.execute("DELETE FROM citations")
     conn.commit()
 
     law_cache, version_cache, old_cache, agg = {}, {}, {}, {}
@@ -136,6 +137,21 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
                     (law_id, label, jo, ga, a.get("title", ""), a.get("enforce_date", ""),
                      a.get("moved_from", ""), a.get("moved_to", ""),
                      1 if a.get("changed") else 0, a.get("content", "")))
+        # 인용 위치(span)·맨몸 플래그를 영속 — 하이라이트를 DB에서 서빙(라이브 추출 제거 토대)
+        for r in res.get("citations", []):
+            if r["type"] == "기타":           # 일반어(법령/다른 법령 등) 제외
+                continue
+            s = r.get("span") or (0, 0)
+            conn.execute(
+                """INSERT INTO citations
+                   (mst, article_no, law_name, law_id, clause_label, alias_source,
+                    raw_text, span_start, span_end, cite_naked, ord_seq, cite_type)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (mst, r.get("ord_article", ""), r["name"], "",
+                 ",".join(r["clause_labels"]), r.get("alias_source") or "",
+                 r.get("raw", ""), s[0], s[1],
+                 1 if r.get("alias_source") == "naked" else 0,
+                 r.get("ord_seq", 0), r["type"]))
         conn.commit()
         if verbose:
             nonc = sum(1 for f in res["findings"] if f["severity"] != "current")

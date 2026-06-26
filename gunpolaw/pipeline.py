@@ -26,7 +26,8 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     meta = body["meta"]
     ord_enforce = meta["enforce_date"]
 
-    grouped = group_by_law(extract_citations_by_article(body["articles"]))
+    refs = extract_citations_by_article(body["articles"])
+    grouped = group_by_law(refs)
     link_index = link_index or {}
     law_body_cache = law_cache if law_cache is not None else {}
     version_cache = version_cache if version_cache is not None else {}
@@ -89,6 +90,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         "body_xml": body.get("xml", ""),
         "findings": findings,
         "fetched_laws": fetched_laws,
+        "citations": refs,
         "summary": checks.summarize(findings),
     }
 

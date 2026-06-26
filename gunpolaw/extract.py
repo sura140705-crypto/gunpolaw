@@ -96,7 +96,7 @@ def _resolve_same(last_law, kind):
     return last_law
 
 
-def _ref(name, clause, alias_source, ord_article="", ord_seq=0):
+def _ref(name, clause, alias_source, ord_article="", ord_seq=0, span=None, raw=""):
     return {
         "name": name,
         "clause": clause,
@@ -105,6 +105,8 @@ def _ref(name, clause, alias_source, ord_article="", ord_seq=0):
         "type": classify(name),
         "ord_article": ord_article or "",   # 인용이 등장한 조례 조문(제Y조)
         "ord_seq": ord_seq,                 # 조례 본문 내 등장 순서(작을수록 먼저)
+        "span": span or (0, 0),             # (start,end) 정규화 조문본문 내 문자 offset — 하이라이트용
+        "raw": raw,                         # 매칭된 원문(디버그·표시)
     }
 
 
@@ -158,13 +160,15 @@ def _extract_segments(segments):
                     doc_aliases[alias] = name          # inline 약칭 등록
                 if classify(name) in ("법령", "자치법규"):
                     last_law = name                    # carry-over 기준 갱신
-                refs.append(_ref(name, clause, "inline" if alias else None, no, seq))
+                refs.append(_ref(name, clause, "inline" if alias else None, no, seq,
+                                 span=m.span(), raw=m.group(0)))
             elif typ == "same":  # 위치상 바로 앞 법령에 연결
                 if not last_law:
                     continue
                 resolved = _resolve_same(last_law, m.group(1))
                 clause = (m.group(2) or "").strip()
-                refs.append(_ref(resolved, clause, "carry_over", no, seq))
+                refs.append(_ref(resolved, clause, "carry_over", no, seq,
+                                 span=m.span(), raw=m.group(0)))
             else:  # naked — 「」 없이 쓴 단일토큰 법명(서식 위반이나 인식은 함)
                 base = m.group(1).strip()
                 if base.replace(" ", "") in NAKED_STOP:
@@ -174,7 +178,8 @@ def _extract_segments(segments):
                 clause = (m.group(3) or "").strip()
                 if classify(name) in ("법령", "자치법규"):
                     last_law = name
-                refs.append(_ref(name, clause, "naked", no, seq))
+                refs.append(_ref(name, clause, "naked", no, seq,
+                                 span=m.span(), raw=m.group(0)))
 
     # 2) inline 정의된 약칭의 단독 사용 ("법 제30조") 해소 — 전 약칭 수집 후 전체 재스캔
     for alias, full in doc_aliases.items():
@@ -185,7 +190,8 @@ def _extract_segments(segments):
         for no, text in norm:
             for m in pat.finditer(text):
                 seq += 1
-                refs.append(_ref(full, (m.group(1) or "").strip(), "alias", no, seq))
+                refs.append(_ref(full, (m.group(1) or "").strip(), "alias", no, seq,
+                                 span=m.span(), raw=m.group(0)))
 
     return refs
 
