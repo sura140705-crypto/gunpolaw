@@ -27,6 +27,11 @@ def _date(s):
 _AMEND_TAG = re.compile(r"<(?:개정|신설|전문개정)([^>]*)>")
 _AMEND_DATE = re.compile(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})")
 
+# 당시/현행 본문을 diff·표시하기 위한 1조문당 최대 보존 글자수.
+# 너무 작으면(구 400) 두 시점이 서로 다른 지점에서 잘려 '진짜 변경'이 아니라
+# 잘린 꼬리가 diff로 보인다 → 조문 전체가 들어가도록 넉넉히.
+EVIDENCE_CHARS = 3000
+
 
 def amend_dates(content):
     """조내용 안의 <개정/신설/전문개정 YYYY.M.D ...> 태그의 모든 개정일(YYYYMMDD) 오름차순.
@@ -171,8 +176,9 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
 
     def _evidence():
         if old:
-            return f"[당시] {old['content'][:400]}\n[현행] {cur['content'][:400]}"
-        return f"[현행] {cur['content'][:400]}"
+            return (f"[당시] {old['content'][:EVIDENCE_CHARS]}\n"
+                    f"[현행] {cur['content'][:EVIDENCE_CHARS]}")
+        return f"[현행] {cur['content'][:EVIDENCE_CHARS]}"
 
     if amended_after is True:
         gap = f" (개정 {was}→{now})" if (was and now and was != now) else ""

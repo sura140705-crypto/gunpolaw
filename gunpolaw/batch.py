@@ -101,7 +101,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
                  f["severity"], f.get("change_type", ""), f.get("ord_clause", ""),
                  f.get("ord_seq", 0), f["detail"], f["ord_enforce"],
                  f.get("old_enforce", ""), f["clause_enforce"],
-                 (f["evidence"] or "")[:1200], _now()))
+                 (f["evidence"] or "")[:8000], _now()))
             agg[f["severity"]] = agg.get(f["severity"], 0) + 1
         conn.commit()
         if verbose:
