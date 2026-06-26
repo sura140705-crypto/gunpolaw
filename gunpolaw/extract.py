@@ -61,7 +61,6 @@ LOCAL_PREFIX = (
     "서울특별시", "부산광역시", "인천광역시", "대구광역시",
     "광주광역시", "대전광역시", "울산광역시", "세종특별자치시",
 )
-ORDIN_SUFFIX = ("조례", "규칙")
 SELF_REF_RE = re.compile(r'이\s*조례|이\s*규칙')
 
 
@@ -76,12 +75,19 @@ def normalize_text(text):
 
 
 def classify(name):
-    """법령 / 자치법규 / 기타(일반어)."""
+    """법령 / 자치법규 / 기타(일반어).
+
+    주의: '○○법 시행규칙'은 국가법령(법령)이다. '규칙'으로 끝난다고 자치법규로
+    보면 시행규칙(상위법)을 통째로 놓친다 → '시행규칙'은 법령, 그 외 '규칙'(지자체
+    규칙)·'조례'만 자치법규. 지자체 규칙은 대개 LOCAL_PREFIX 로도 먼저 걸린다.
+    """
     if not name or name in GENERIC_NAMES:
         return "기타"
     if any(name.startswith(p) for p in LOCAL_PREFIX):
         return "자치법규"
-    if any(name.endswith(s) for s in ORDIN_SUFFIX):
+    if name.endswith("조례"):
+        return "자치법규"
+    if name.endswith("규칙") and "시행규칙" not in name:
         return "자치법규"
     return "법령"
 

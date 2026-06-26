@@ -125,6 +125,15 @@ def test_naked_excludes_pointer_and_partial_names():
         assert extract_citations(txt) == [], txt
 
 
+def test_sihaeng_rule_classified_as_national_law():
+    """'○○법 시행규칙'은 국가법령(법령) — 규칙으로 끝난다고 자치법규로 보면 시행규칙을
+    분석에서 통째로 누락(파이프라인이 자치법규는 스킵). 지자체 규칙은 자치법규 유지."""
+    g = group_by_law(extract_citations("「화물자동차 운수사업법 시행규칙」 제13조에 따른다."))
+    assert g["화물자동차 운수사업법 시행규칙"]["type"] == "법령", g
+    g2 = group_by_law(extract_citations("「군포시 행정기구 설치 규칙」 제2조에 따른다."))
+    assert g2["군포시 행정기구 설치 규칙"]["type"] == "자치법규", g2
+
+
 def test_bracketed_citation_not_marked_naked():
     """정상 「」 인용은 naked 로 표시되면 안 된다(서식 위반 아님)."""
     g = group_by_law(extract_citations("「민법」 제2조에 따른다."))
