@@ -84,6 +84,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
 
     return {
         "ordinance": meta,
+        "body_xml": body.get("xml", ""),
         "findings": findings,
         "summary": checks.summarize(findings),
     }

@@ -50,7 +50,8 @@ def collect_ordinances(conn, org, sborg, verbose=True):
 
 
 def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
-              db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False):
+              db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False,
+              region_name="군포시"):
     db.init_db(db_path)
     conn = db.connect(db_path)
 
@@ -88,9 +89,14 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
                 print(f"  [{i}/{len(msts)}] {name[:30]} → 오류: {res['error']}")
             continue
         o = res["ordinance"]
+        # collect_ordinances 가 채운 lid/knd/sborg/promulg 는 보존하고 본문·담당과만 갱신
+        # (구 코드의 INSERT OR REPLACE 는 그 컬럼들을 NULL 로 날렸음).
         conn.execute(
-            "INSERT OR REPLACE INTO ordinances(mst, name, enforce_date, org) VALUES (?,?,?,?)",
-            (mst, o["name"], o["enforce_date"], org))
+            """UPDATE ordinances
+               SET name=?, enforce_date=?, org=?, dept=?, phone=?, body_xml=?, fetched_at=?
+               WHERE mst=?""",
+            (o["name"], o["enforce_date"], org, o.get("dept", ""), o.get("phone", ""),
+             res.get("body_xml", ""), _now(), mst))
         for f in res["findings"]:
             conn.execute(
                 """INSERT INTO findings(mst, law_id, law_name, clause_label, category,
@@ -109,8 +115,20 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
             print(f"  [{i}/{len(msts)}] {o['name'][:28]:<28} → 변경 {nonc}건")
         time.sleep(sleep)
 
+    # 배치 스냅샷 stamp — UI 기준일 배너·타 시군 재사용 설정
+    findings_n = conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
+    laws_n = conn.execute(
+        "SELECT COUNT(DISTINCT law_id) FROM findings WHERE law_id != ''").fetchone()[0]
+    conn.execute(
+        """INSERT OR REPLACE INTO batch_meta
+           (id, org, sborg, region_name, batch_date, ordinances_n, laws_n, findings_n, deep, status)
+           VALUES (1,?,?,?,?,?,?,?,?,?)""",
+        (org, sborg, region_name, _now(), len(msts), laws_n, findings_n,
+         1 if deep else 0, "ok"))
+    conn.commit()
     conn.close()
-    return {"processed": len(msts), "errors": errors, "agg": agg, "db": str(db_path)}
+    return {"processed": len(msts), "errors": errors, "agg": agg, "db": str(db_path),
+            "laws": laws_n, "findings": findings_n, "batch_date": _now()}
 
 
 def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):

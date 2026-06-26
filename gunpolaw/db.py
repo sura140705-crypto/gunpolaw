@@ -20,8 +20,24 @@ CREATE TABLE IF NOT EXISTS ordinances (
     sborg        TEXT,               -- 시군구 지자체코드
     promulg_date TEXT,
     enforce_date TEXT,               -- 비교 기준일
-    body_xml     TEXT,
+    dept         TEXT,               -- 담당부서명(본문 API) — 과별 리포트 라우팅 축
+    phone        TEXT,               -- 담당과 전화번호(본문 API) — 통지 연락처
+    body_xml     TEXT,               -- 조례 원본 XML(서빙은 DB만 읽음)
     fetched_at   TEXT
+);
+
+-- 배치 스냅샷 메타 : 기준일·재사용 설정 (UI 기준일 배너·타 시군 재사용)
+CREATE TABLE IF NOT EXISTS batch_meta (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),  -- 단일행
+    org          TEXT,
+    sborg        TEXT,
+    region_name  TEXT,               -- 지자체명(표시용)
+    batch_date   TEXT,               -- 배치 기준일(스냅샷 시점)
+    ordinances_n INTEGER,
+    laws_n       INTEGER,
+    findings_n   INTEGER,
+    deep         INTEGER,
+    status       TEXT
 );
 
 -- 상위법령 현행본 : target=law 로 채움
@@ -104,12 +120,16 @@ def init_db(db_path=DEFAULT_DB):
     conn = connect(db_path)
     conn.executescript(SCHEMA)
     # 기존 DB 호환: 신규 컬럼 보강 (없을 때만)
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
+    fcols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
     for name, decl in (("change_type", "TEXT"), ("ord_clause", "TEXT"),
                        ("ord_seq", "INTEGER"), ("old_enforce", "TEXT"),
                        ("cite_naked", "INTEGER")):
-        if name not in cols:
+        if name not in fcols:
             conn.execute(f"ALTER TABLE findings ADD COLUMN {name} {decl}")
+    ocols = [r[1] for r in conn.execute("PRAGMA table_info(ordinances)")]
+    for name, decl in (("dept", "TEXT"), ("phone", "TEXT")):
+        if name not in ocols:
+            conn.execute(f"ALTER TABLE ordinances ADD COLUMN {name} {decl}")
     conn.commit()
     conn.close()
     return db_path

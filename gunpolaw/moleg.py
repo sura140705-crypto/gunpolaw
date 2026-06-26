@@ -107,6 +107,10 @@ def get_ordinance_body(mst):
         "name": (info.findtext("자치법규명") or "").strip(),
         "enforce_date": (info.findtext("시행일자") or "").strip(),
         "promulg_date": (info.findtext("공포일자") or "").strip(),
+        # 담당과(담당부서명)·전화번호는 목록 API엔 없고 본문에만 있다 → 여기서 추출해 영속화.
+        # dept = 과별 리포트 라우팅 축, phone = 통지 연락처.
+        "dept": (info.findtext("담당부서명") or "").strip(),
+        "phone": (info.findtext("전화번호") or "").strip(),
     }
     articles = []
     for jo in root.findall(".//조문/조"):
@@ -121,7 +125,8 @@ def get_ordinance_body(mst):
         el = root.find(tag)
         if el is not None:
             parts.append("\n".join(t.strip() for t in el.itertext() if t.strip()))
-    return {"meta": meta, "articles": articles, "full_text": "\n".join(parts)}
+    # xml(원본)도 함께 반환 — 배치가 ordinances.body_xml 로 영속(서빙은 DB만 읽음).
+    return {"meta": meta, "articles": articles, "full_text": "\n".join(parts), "xml": xml}
 
 
 # ------------------------------------------------------------------
