@@ -104,6 +104,33 @@ def test_law_name_only_tracks_article():
     assert g["민원 처리에 관한 법률"]["clause_labels"] == []
 
 
+def test_naked_law_citation_recognized():
+    """「」 없이 맨몸으로 쓴 단일토큰 법명도 인식해야 한다(서식 위반이지만 인식 필요).
+
+    실제 케이스(군포시 주민등록사무의 동 위임 조례 제1조):
+    '이 조례는 주민등록법 제2조제2항에 의거 …'
+    """
+    text = ('이 조례는 주민등록법 제2조제2항에 의거 시장이 관장하는 '
+            '주민등록 사무에 관한 권한 중 일부를 동장에게 위임한다.')
+    g = group_by_law(extract_citations(text))
+    assert "주민등록법" in g, list(g)
+    assert g["주민등록법"]["type"] == "법령"
+    assert "제2조" in _labels(g, "주민등록법")
+    assert g["주민등록법"]["naked_any"] and g["주민등록법"]["naked_only"]
+
+
+def test_naked_excludes_pointer_and_partial_names():
+    """지시어('같은/이/위반한 법')와 멀티어절 꼬리('특별법')는 맨몸 채택 제외."""
+    for txt in ("같은 법 제3조", "이 법 제5조", "위반한 법 제8조", "특별법 제4조"):
+        assert extract_citations(txt) == [], txt
+
+
+def test_bracketed_citation_not_marked_naked():
+    """정상 「」 인용은 naked 로 표시되면 안 된다(서식 위반 아님)."""
+    g = group_by_law(extract_citations("「민법」 제2조에 따른다."))
+    assert g["민법"]["naked_any"] is False and g["민법"]["naked_only"] is False
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

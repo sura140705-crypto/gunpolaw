@@ -39,6 +39,20 @@ SAME_LAW_RE = re.compile(
     r'같은\s*(법\s*시행규칙|법\s*시행령|영|법)\s*(' + CLAUSE_INNER + r')'
 )
 
+# 맨몸 인용: 「」 없이 쓴 '단일토큰 법명(+선택 시행령) + 조항' ("주민등록법 제2조제2항").
+# 「」가 인용 경계를 주지 않으므로 신뢰 가능한 경우로 한정 — 공백 없는 단일 한글토큰이
+# 법/법률로 끝나는 것만(여러어절·약칭은 경계 모호로 제외). 조항이 반드시 뒤따라야 채택.
+# 앞이 「/단어문자면 매칭 안 함(정상 「」 인용·긴 이름 회피). 해소 실패 맨몸은 파이프라인에서 침묵 드롭.
+NAKED_LAW_RE = re.compile(
+    r'(?<![「\w])'
+    r'([가-힣]{2,}(?:법률|법))(\s*시행령)?'
+    r'\s*(' + CLAUSE_INNER + r')'
+)
+# 법명처럼 보이나 단독 법령이 아닌 토큰(멀티어절 꼬리·지시어) — 맨몸 채택 제외
+NAKED_STOP = {"같은법", "이법", "그법", "본법", "해당법", "동법", "관계법", "관련법",
+              "상위법", "현행법", "신법", "구법", "위반법", "준용법", "적용법",
+              "특별법", "기본법", "일반법"}
+
 # 분류
 GENERIC_NAMES = {"법령", "다른 법령", "법령이나 조례",
                  "법령이나 다른 조례", "법령 등"}
@@ -130,7 +144,10 @@ def _extract_segments(segments):
             events.append((m.start(), "law", m))
         for m in SAME_LAW_RE.finditer(text):
             events.append((m.start(), "same", m))
-        events.sort(key=lambda e: e[0])
+        for m in NAKED_LAW_RE.finditer(text):
+            events.append((m.start(), "naked", m))
+        # 같은 시작위치에 「」(law)와 naked 가 겹치면 law 우선(0), naked 후순위(1)
+        events.sort(key=lambda e: (e[0], 0 if e[1] != "naked" else 1))
         for _, typ, m in events:
             seq += 1
             if typ == "law":
@@ -142,12 +159,22 @@ def _extract_segments(segments):
                 if classify(name) in ("법령", "자치법규"):
                     last_law = name                    # carry-over 기준 갱신
                 refs.append(_ref(name, clause, "inline" if alias else None, no, seq))
-            else:  # same — 위치상 바로 앞 법령에 연결
+            elif typ == "same":  # 위치상 바로 앞 법령에 연결
                 if not last_law:
                     continue
                 resolved = _resolve_same(last_law, m.group(1))
                 clause = (m.group(2) or "").strip()
                 refs.append(_ref(resolved, clause, "carry_over", no, seq))
+            else:  # naked — 「」 없이 쓴 단일토큰 법명(서식 위반이나 인식은 함)
+                base = m.group(1).strip()
+                if base.replace(" ", "") in NAKED_STOP:
+                    seq -= 1                            # 채택 안 함 → 순서 보존
+                    continue
+                name = (base + (m.group(2) or "")).strip()
+                clause = (m.group(3) or "").strip()
+                if classify(name) in ("법령", "자치법규"):
+                    last_law = name
+                refs.append(_ref(name, clause, "naked", no, seq))
 
     # 2) inline 정의된 약칭의 단독 사용 ("법 제30조") 해소 — 전 약칭 수집 후 전체 재스캔
     for alias, full in doc_aliases.items():
@@ -189,8 +216,10 @@ def group_by_law(refs):
             "name": r["name"], "type": r["type"],
             "clause_labels": set(), "alias_sources": set(),
             "clause_articles": {}, "law_articles": set(),
-            "clause_seq": {}, "law_seq": None,
+            "clause_seq": {}, "law_seq": None, "sources": set(),
         })
+        # 출처 추적: 평이한 「」 인용(alias_source None)은 'bracket' 으로 기록.
+        g["sources"].add(r.get("alias_source") or "bracket")
         oa = r.get("ord_article") or ""
         sq = r.get("ord_seq") or 0
         if r["clause_labels"]:
@@ -222,5 +251,8 @@ def group_by_law(refs):
             "clause_seq": dict(g["clause_seq"]),
             "law_seq": g["law_seq"] or 0,
             "alias_sources": sorted(g["alias_sources"]),
+            # 서식 판정: 맨몸 인용 포함 여부 / 맨몸으로만 잡혔는지(해소 실패 시 침묵 드롭 기준)
+            "naked_any": "naked" in g["sources"],
+            "naked_only": g["sources"] == {"naked"},
         }
     return out

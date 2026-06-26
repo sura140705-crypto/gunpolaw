@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS findings (
     old_enforce     TEXT,            -- 당시 시행본 법령 일자(판단 기준일)
     clause_enforce  TEXT,            -- 현행 조문 시행/개정일(판단 기준일)
     evidence        TEXT,
+    cite_naked      INTEGER,         -- 1=「」 없이 맨몸으로 인용된 법령(서식 정비 병행 대상)
     created_at      TEXT
 );
 
@@ -105,7 +106,8 @@ def init_db(db_path=DEFAULT_DB):
     # 기존 DB 호환: 신규 컬럼 보강 (없을 때만)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
     for name, decl in (("change_type", "TEXT"), ("ord_clause", "TEXT"),
-                       ("ord_seq", "INTEGER"), ("old_enforce", "TEXT")):
+                       ("ord_seq", "INTEGER"), ("old_enforce", "TEXT"),
+                       ("cite_naked", "INTEGER")):
         if name not in cols:
             conn.execute(f"ALTER TABLE findings ADD COLUMN {name} {decl}")
     conn.commit()

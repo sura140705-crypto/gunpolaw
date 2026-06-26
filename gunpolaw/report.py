@@ -116,24 +116,30 @@ def action_text(f):
     here = _get(f, "ord_clause")
     g = grade_of(_get(f, "severity"), ct)
     loc = f"이 조례 {here}" if here else "이 조례의 해당 조문"
+    # 「」 없이 맨몸으로 인용된 법령은 내용 정비와 함께 인용 서식도 바로잡도록 덧붙임
+    naked_note = (f' (덧붙여 「{law}」처럼 꺽쇠 서식으로 정정)'
+                  if _get(f, "cite_naked") else "")
 
-    if g == "mechanical":
-        # detail 안에 "제X조 → 제Y조" 이동처 안내가 들어 있음
-        return f"「{law}」 {clause} 인용을 현행 조문번호로 정정 ({loc}) — {_get(f, 'detail')}"
-    if g == "review":
-        if ct == "내용변경":
-            return f"「{law}」 {clause} 개정 내용을 반영하여 {loc}을(를) 검토·정비"
-        if ct == "삭제":
-            return f"「{law}」 {clause} 삭제·통합 여부를 확인하고 {loc}의 인용을 정비"
-        if ct == "번호이동":
-            return f"「{law}」 {clause} 조문번호 이동 — {loc}의 인용 조문번호 정정"
-        return f"「{law}」 {clause} 변경 사항을 검토하여 {loc} 정비"
-    # check
-    if ct == "법령미해결":
-        return f"「{law}」 제명변경·폐지 여부를 확인하고 {loc}의 인용 법령명을 정정"
-    if ct == "당시부재":
-        return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
-    return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
+    def _base():
+        if g == "mechanical":
+            # detail 안에 "제X조 → 제Y조" 이동처 안내가 들어 있음
+            return f"「{law}」 {clause} 인용을 현행 조문번호로 정정 ({loc}) — {_get(f, 'detail')}"
+        if g == "review":
+            if ct == "내용변경":
+                return f"「{law}」 {clause} 개정 내용을 반영하여 {loc}을(를) 검토·정비"
+            if ct == "삭제":
+                return f"「{law}」 {clause} 삭제·통합 여부를 확인하고 {loc}의 인용을 정비"
+            if ct == "번호이동":
+                return f"「{law}」 {clause} 조문번호 이동 — {loc}의 인용 조문번호 정정"
+            return f"「{law}」 {clause} 변경 사항을 검토하여 {loc} 정비"
+        # check
+        if ct == "법령미해결":
+            return f"「{law}」 제명변경·폐지 여부를 확인하고 {loc}의 인용 법령명을 정정"
+        if ct == "당시부재":
+            return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
+        return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
+
+    return _base() + naked_note
 
 
 # ---------- DB → 보고 모델 ----------
@@ -159,6 +165,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None):
         f"""SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
                   f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
+                  {sel('cite_naked', '0')},
                   o.name AS ord_name, o.enforce_date AS ord_enforce_date
            FROM findings f LEFT JOIN ordinances o ON o.mst = f.mst
            {where}
@@ -192,6 +199,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None):
                 "ord_enforce": r["ord_enforce"] or o["enforce_date"],
                 "old_enforce": r["old_enforce"] or "",
                 "clause_enforce": r["clause_enforce"] or "",
+                "cite_naked": r["cite_naked"] or 0,
             })
 
     ordinances = [o for o in by_mst.values() if o["items"]]
@@ -248,6 +256,7 @@ h1 { font-size:24px; margin:0 0 4px; }
              margin-right:8px; white-space:nowrap; }
 .t-mech { background:#dbeafe; color:#1e40af;} .t-rev { background:#fef3c7; color:#92400e;}
 .t-chk { background:#f3f4f6; color:#374151;}
+.t-naked { background:#ede9fe; color:#5b21b6;}
 .item .law { font-size:13px; font-weight:600; color:#374151; }
 .item .act { font-size:14px; margin:2px 0; }
 .basis { font-size:11.5px; color:#6b7280; margin:4px 0 6px; }
@@ -316,9 +325,11 @@ def _item_block(it):
     tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk"}[it["grade"]]
     tag = it["change_type"] or GRADE_META[it["grade"]]["label"]
     law = f'「{_esc(it["law_name"])}」 {_esc(it["clause_label"])}'.rstrip()
+    naked = ('<span class="tag t-naked">「」누락</span>'
+             if it.get("cite_naked") else "")
     return (
         '<div class="item">'
-        f'<div class="iline"><span class="tag {tag_cls}">{_esc(tag)}</span>'
+        f'<div class="iline"><span class="tag {tag_cls}">{_esc(tag)}</span>{naked}'
         f'<span class="law">{law}</span></div>'
         f'<div class="act">{_esc(it["action"])}</div>'
         f'{_basis_line(it)}'

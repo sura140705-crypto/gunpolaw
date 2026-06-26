@@ -39,14 +39,19 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         # 이 법령을 인용한 조례 조문(법명only 위치) — 법령단위 finding 의 정비 위치
         law_loc = ", ".join(g.get("law_articles", []))
         law_seq = g.get("law_seq", 0)
+        naked_any = g.get("naked_any", False)
+        naked_only = g.get("naked_only", False)
         law_id = link_index.get(name.replace(" ", "")) or moleg.resolve_law_id(name)
         if not law_id:
+            # 맨몸으로만 잡힌 미해소 법명은 오탐 가능성이 높아 침묵 드롭(노이즈 억제).
+            if naked_only:
+                continue
             findings.append({
                 "law_id": "", "law_name": name, "clause_label": "",
                 "category": "status", "severity": "check", "change_type": "법령미해결",
                 "detail": "법령ID 미해결 (폐지/제명변경 의심)", "ord_enforce": ord_enforce,
                 "clause_enforce": "", "old_enforce": "", "evidence": "",
-                "ord_clause": law_loc, "ord_seq": law_seq})
+                "ord_clause": law_loc, "ord_seq": law_seq, "cite_naked": 1 if naked_any else 0})
             continue
         if law_id not in law_body_cache:
             law_body_cache[law_id] = moleg.parse_law_articles(moleg.get_law_body(law_id))
@@ -74,6 +79,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                 f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
             f["ord_clause"] = ", ".join(clause_articles.get(label, []))
             f["ord_seq"] = clause_seq.get(label, 0)
+            f["cite_naked"] = 1 if naked_any else 0
             findings.append(f)
 
     return {

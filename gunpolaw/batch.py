@@ -95,13 +95,13 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
             conn.execute(
                 """INSERT INTO findings(mst, law_id, law_name, clause_label, category,
                        severity, change_type, ord_clause, ord_seq, detail, ord_enforce,
-                       old_enforce, clause_enforce, evidence, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       old_enforce, clause_enforce, evidence, cite_naked, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (mst, f["law_id"], f["law_name"], f["clause_label"], f["category"],
                  f["severity"], f.get("change_type", ""), f.get("ord_clause", ""),
                  f.get("ord_seq", 0), f["detail"], f["ord_enforce"],
                  f.get("old_enforce", ""), f["clause_enforce"],
-                 (f["evidence"] or "")[:8000], _now()))
+                 (f["evidence"] or "")[:8000], f.get("cite_naked", 0), _now()))
             agg[f["severity"]] = agg.get(f["severity"], 0) + 1
         conn.commit()
         if verbose:
