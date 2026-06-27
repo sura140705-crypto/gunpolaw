@@ -125,8 +125,9 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
             agg[f["severity"]] = agg.get(f["severity"], 0) + 1
         # 이번에 새로 받은 법령의 현행 본문·조문을 영속(서빙은 DB만 읽음 — 라이브 호출 제거)
         for law_id, lw in res.get("fetched_laws", {}).items():
-            conn.execute("INSERT OR REPLACE INTO laws(law_id, name, fetched_at) VALUES (?,?,?)",
-                         (law_id, lw["name"], _now()))
+            conn.execute(
+                "INSERT OR REPLACE INTO laws(law_id, name, body_xml, fetched_at) VALUES (?,?,?,?)",
+                (law_id, lw["name"], lw.get("body_xml", ""), _now()))
             for label, a in lw["articles"].items():
                 jo, ga = _label_nums(label)
                 conn.execute(

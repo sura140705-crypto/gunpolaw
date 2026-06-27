@@ -56,8 +56,11 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                 "ord_clause": law_loc, "ord_seq": law_seq, "cite_naked": 1 if naked_any else 0})
             continue
         if law_id not in law_body_cache:
-            law_body_cache[law_id] = moleg.parse_law_articles(moleg.get_law_body(law_id))
-            fetched_laws[law_id] = {"name": name, "articles": law_body_cache[law_id]}
+            law_xml = moleg.get_law_body(law_id)
+            law_body_cache[law_id] = moleg.parse_law_articles(law_xml)
+            # 원본 XML도 함께 넘겨 영속 → 파싱 규칙이 바뀌어도 재수집 없이 오프라인 재파싱
+            fetched_laws[law_id] = {"name": name, "articles": law_body_cache[law_id],
+                                    "body_xml": law_xml or ""}
         cur_arts = law_body_cache[law_id]
 
         old_arts = None

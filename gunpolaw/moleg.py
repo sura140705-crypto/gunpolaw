@@ -188,6 +188,33 @@ def get_law_body(law_id):
     return call("lawService.do", {"target": "law", "type": "XML", "ID": str(law_id)})
 
 
+# 조문 본문을 이루는 하위 단위와 그 내용 태그. 호/목까지 담아야 '정의' 같은
+# 호 구조 조문의 실제 내용이 보존된다(머리글만 남으면 diff가 개정날짜만 보임).
+_SUBUNIT_CONTENT = {"항": "항내용", "호": "호내용", "목": "목내용"}
+
+
+def _collect_subunits(el, parts):
+    """el(조문단위/항/호) 아래의 항·호·목 내용을 문서 순서대로 parts에 모은다(재귀)."""
+    for child in el:
+        tag = child.tag
+        if tag in _SUBUNIT_CONTENT:
+            txt = (child.findtext(_SUBUNIT_CONTENT[tag]) or "").strip()
+            if txt:
+                parts.append(txt)
+            _collect_subunits(child, parts)   # 항>호, 호>목 중첩까지
+
+
+def article_text(u):
+    """조문단위 -> 조문내용 + 항·호·목 내용을 줄바꿈으로 이은 전체 본문.
+
+    기존엔 조문내용·항내용만 담아 호(號)로 된 정의·열거 조문이 머리글만 남았다.
+    그 결과 당시/현행 diff에 비교할 알맹이가 없어 <개정 …> 날짜만 차이로 보였다.
+    """
+    parts = [(u.findtext("조문내용") or "").strip()]
+    _collect_subunits(u, parts)
+    return "\n".join(p for p in parts if p)
+
+
 def parse_law_articles(xml):
     """법령 본문 XML -> {라벨: 조문메타}. 조문이동 코드는 라벨로 decode."""
     if not xml:
@@ -215,9 +242,6 @@ def parse_law_articles(xml):
             except ValueError:
                 ga = 0
         label = to_label(int(jo_num), ga)
-        body = [(u.findtext("조문내용") or "").strip()]
-        for hang in u.findall("항"):
-            body.append((hang.findtext("항내용") or "").strip())
         arts[label] = {
             "label": label,
             "enforce_date": (u.findtext("조문시행일자") or "").strip(),
@@ -225,6 +249,6 @@ def parse_law_articles(xml):
             "moved_to": decode_article_code(u.findtext("조문이동이후")),
             "changed": (u.findtext("조문변경여부") or "").strip() == "Y",
             "title": (u.findtext("조문제목") or "").strip(),
-            "content": "\n".join(p for p in body if p),
+            "content": article_text(u),
         }
     return arts
