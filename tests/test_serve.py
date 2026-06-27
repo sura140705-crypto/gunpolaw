@@ -14,6 +14,7 @@ from gunpolaw import db
 from gunpolaw.serve import (overview, list_ordinances, ordinance_detail,
                             _highlight_article)
 from gunpolaw.extract import normalize_text
+from gunpolaw.report import build_model, model_to_csv
 
 
 def _make_db():
@@ -81,6 +82,21 @@ def test_list_filters():
     assert {o["mst"] for o in list_ordinances(path, action_only=True)} == {"1", "2"}
     assert {o["mst"] for o in list_ordinances(path, dept="기획과", action_only=True)} == {"1", "2"}
     assert list_ordinances(path, dept="총무과", action_only=True) == []
+    os.unlink(path)
+
+
+def test_dept_report_filter_and_csv():
+    """build_model(dept=) 가 그 과 조례만, model_to_csv 가 그 행만 낸다."""
+    path = _make_db()
+    m_dept = build_model(path, dept="기획과")
+    # 기획과는 가·나 조례(정비 대상)만
+    names = {o["name"] for o in m_dept["ordinances"]}
+    assert names == {"가 조례", "나 조례"}, names
+    # 총무과(다)는 현행만이라 정비 대상 0 → 과별 리포트 비어 있음
+    assert build_model(path, dept="총무과")["ordinances"] == []
+    csv_text = model_to_csv(m_dept, dept="기획과")
+    assert csv_text.count("기획과,") >= 2          # 항목마다 담당과 열
+    assert "총무과" not in csv_text
     os.unlink(path)
 
 

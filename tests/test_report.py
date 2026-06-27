@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gunpolaw.report import (
-    grade_of, action_text, build_model, render_html,
+    grade_of, action_text, build_model, render_html, model_to_csv,
     _split_evidence, _diff_marks, _fmtdate)
 
 
@@ -120,6 +120,26 @@ def test_render_html_smoke():
     assert "테스트 조례" in h
     assert "&lt;x&gt;" in h          # evidence HTML 이스케이프
     assert "<x>" not in h            # 원본 꺾쇠는 새지 않음
+
+
+def test_model_to_csv():
+    model = {
+        "summary": {},
+        "ordinances": [{
+            "name": "테스트 조례", "enforce_date": "20200101",
+            "grades": {}, "items": [{
+                "grade": "review", "law_name": "건축법", "clause_label": "제2조",
+                "change_type": "내용변경", "ord_clause": "제3조",
+                "action": "「건축법」 제2조 개정 반영", "evidence": "",
+                "ord_enforce": "20200101", "old_enforce": "20190101",
+                "clause_enforce": "20210101", "cite_naked": 0}]}],
+    }
+    csv_text = model_to_csv(model, dept="기획과")
+    assert csv_text.startswith("﻿"), "엑셀 한글 위해 BOM"
+    assert "담당과,조례," in csv_text                    # 헤더
+    lines = csv_text.splitlines()
+    assert lines[1].startswith("기획과,테스트 조례,2020-01-01,제3조,실질 검토,건축법,제2조,내용변경"), lines[1]
+    assert "2019-01-01" in lines[1] and "2021-01-01" in lines[1]   # 기준일
 
 
 def _run():

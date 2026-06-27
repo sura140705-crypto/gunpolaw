@@ -15,12 +15,13 @@
 import html
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 from . import db
 from . import moleg
 from .extract import normalize_text
-from .report import GRADE_KEYS, GRADE_META, finding_grade, recommend_fragment
+from .report import (GRADE_KEYS, GRADE_META, finding_grade, recommend_fragment,
+                     build_model, render_html, model_to_csv)
 
 
 # ---------- DB 읽기(읽기전용 집계) ----------
@@ -179,11 +180,14 @@ class _Handler(BaseHTTPRequestHandler):
     db_path = db.DEFAULT_DB
     server_version = "gunpolaw-serve/1.0"
 
-    def _send(self, body, status=200, ctype="application/json; charset=utf-8"):
+    def _send(self, body, status=200, ctype="application/json; charset=utf-8",
+              headers=None):
         data = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
@@ -209,10 +213,28 @@ class _Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/ordinance/"):
                 mst = path.rsplit("/", 1)[-1]
                 return self._json(ordinance_detail(self.db_path, mst))
+            if path == "/api/dept_report":
+                q = parse_qs(u.query)
+                dept = (q.get("dept") or [""])[0]
+                fmt = (q.get("format") or ["html"])[0]
+                return self._dept_report(dept, fmt)
             return self._json({"error": "not found", "path": path}, status=404)
         except Exception as e:  # 서빙은 죽지 않게 — 오류도 JSON으로
             return self._json({"error": type(e).__name__, "detail": str(e)},
                               status=500)
+
+    def _dept_report(self, dept, fmt):
+        """담당과 단위 정비 권고 산출물(통지용) — HTML(인쇄/PDF) 또는 CSV."""
+        if not dept:
+            return self._json({"error": "dept 필요"}, status=400)
+        model = build_model(self.db_path, dept=dept)
+        if fmt == "csv":
+            fn = quote(f"{dept}_정비권고.csv")
+            return self._send(
+                model_to_csv(model, dept=dept), ctype="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fn}"})
+        htmltext = render_html(model, title=f"{dept} 자치법규 정비 권고")
+        return self._send(htmltext, ctype="text/html; charset=utf-8")
 
     do_HEAD = do_GET
 
@@ -273,6 +295,7 @@ th{background:#f9fafb;color:#6b7280;font-weight:600;font-size:12px;position:stic
 tbody tr{cursor:pointer;}
 tbody tr:hover{background:#f8fafc;}
 td.num{text-align:right;font-variant-numeric:tabular-nums;}
+td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .dist{white-space:nowrap;}
 .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;
       margin-right:4px;color:#fff;}
@@ -355,13 +378,16 @@ function fillDeptSelect(){
 }
 
 function renderDeptTable(){
-  let rows=OV.depts.map(d=>`<tr data-dept="${esc(d.dept)}">
+  let rows=OV.depts.map(d=>{const dq=encodeURIComponent(d.dept);
+    const rep=d.action?`<a href="/api/dept_report?dept=${dq}&format=html" target="_blank" onclick="event.stopPropagation()">🖨</a>
+       <a href="/api/dept_report?dept=${dq}&format=csv" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
+    return `<tr data-dept="${esc(d.dept)}">
      <td>${esc(d.dept)}</td>
      <td class="num">${d.action}</td><td class="num">${d.total}</td>
-     <td class="dist">${dist(d.grades)}</td></tr>`).join("");
+     <td class="dist">${dist(d.grades)}</td><td class="rep">${rep}</td></tr>`;}).join("");
   document.getElementById("listPanel").innerHTML=
     `<table><thead><tr><th>담당과</th><th class="num">정비대상</th>
-     <th class="num">전체</th><th>등급 분포</th></tr></thead><tbody>${rows}</tbody></table>`;
+     <th class="num">전체</th><th>등급 분포</th><th>리포트</th></tr></thead><tbody>${rows}</tbody></table>`;
   document.querySelectorAll("#listPanel tr[data-dept]").forEach(tr=>
     tr.onclick=()=>{selectDept(tr.dataset.dept);});
 }
@@ -434,7 +460,11 @@ function selectDept(dept){
 }
 function renderCrumb(){
   const c=document.getElementById("crumb");
-  c.innerHTML=curDept?`<a onclick="selectDept('')">← 전체 담당과</a> · <b>${esc(curDept)}</b>`:"";
+  if(!curDept){c.innerHTML="";return;}
+  const dq=encodeURIComponent(curDept);
+  c.innerHTML=`<a onclick="selectDept('')">← 전체 담당과</a> · <b>${esc(curDept)}</b>`
+    +` · <a href="/api/dept_report?dept=${dq}&format=html" target="_blank">🖨 과별 리포트</a>`
+    +` · <a href="/api/dept_report?dept=${dq}&format=csv">CSV 내려받기</a>`;
 }
 async function refresh(){
   closeDetail();

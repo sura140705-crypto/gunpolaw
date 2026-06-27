@@ -12,8 +12,10 @@ findings(변경 탐지 결과)를 담당자가 바로 결재·정비에 쓰는 "
   check      📋 확인        : 소재 미확인·법령미해결 — 사람 확인
   current    ✅ 현행 유지   : 변경 없음(권고서 본문엔 집계만)
 """
+import csv
 import difflib
 import html
+import io
 import re
 from datetime import datetime
 
@@ -162,12 +164,12 @@ def action_text(f):
 
 
 # ---------- DB → 보고 모델 ----------
-def build_model(db_path=db.DEFAULT_DB, mst=None):
+def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None):
     """findings + ordinances → 권고서 렌더 모델.
 
     {summary:{...}, ordinances:[{name, enforce_date, grades:{}, items:[...]}, ...]}
     조례는 정비 우선순위(기계적→실질→확인 순 가중)로 정렬.
-    mst 지정 시 해당 조례 1건만 모델링(UI 권고 뷰용).
+    mst 지정 시 해당 조례 1건만(UI 권고 뷰용). dept 지정 시 그 담당과 조례만(과별 리포트).
     """
     conn = db.connect(db_path)
     # 구 DB 호환: 없는 컬럼은 빈 값으로 대체
@@ -180,6 +182,9 @@ def build_model(db_path=db.DEFAULT_DB, mst=None):
     if mst is not None:
         where = "WHERE f.mst = ?"
         args = [str(mst)]
+    elif dept is not None:
+        where = "WHERE o.dept = ?"
+        args = [dept]
     rows = conn.execute(
         f"""SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
@@ -432,6 +437,27 @@ def recommend_fragment(mst, db_path=db.DEFAULT_DB):
     return {"found": True, "mst": str(mst), "name": o["name"],
             "grades": o["grades"], "items_count": len(o["items"]),
             "html": _ord_block(o), "css": _CSS}
+
+
+def model_to_csv(model, dept=""):
+    """권고 모델 → CSV 문자열(과별 통지·결재용). Excel 한글 위해 UTF-8 BOM 부착.
+
+    한 행 = 정비 항목 1건. 조례 조문 순서(모델 정렬)를 그대로 보존.
+    """
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["담당과", "조례", "조례시행일", "조례조문", "등급", "법령", "상위법조문",
+                "변경유형", "행동지시", "당시법령본", "현행조문"])
+    for o in model["ordinances"]:
+        for it in o["items"]:
+            w.writerow([
+                dept, o["name"], _fmtdate(o["enforce_date"]),
+                it.get("ord_clause", ""), GRADE_META[it["grade"]]["label"],
+                it.get("law_name", ""), it.get("clause_label", ""),
+                ("서식" if it["grade"] == "format" else it.get("change_type", "")),
+                it.get("action", ""),
+                _fmtdate(it.get("old_enforce")), _fmtdate(it.get("clause_enforce"))])
+    return "﻿" + buf.getvalue()
 
 
 def write_report(db_path=db.DEFAULT_DB, out_path="개정권고서.html", generated_at=None):
