@@ -85,6 +85,23 @@ def test_ord_article_tagging():
     assert ca["제14조"] == ["제7조"], ca
 
 
+def test_occurrences_split_by_article_and_subunit():
+    """같은 조를 다른 호로 다른 조례 조문이 인용 → occurrences가 (조례조문×호)로 분리.
+
+    finding이 조례 조문별로 갈라져 각자 인용한 호/목만 비교되게 하는 토대.
+    """
+    articles = [
+        {"no": "제2조", "body": "「재난 및 안전관리 기본법」 제3조제5호에 따른다."},
+        {"no": "제4조", "body": "「재난 및 안전관리 기본법」 제3조제1호를 적용한다."},
+    ]
+    g = group_by_law(extract_citations_by_article(articles))
+    occ = g["재난 및 안전관리 기본법"]["occurrences"]
+    keys = {(o["ord_article"], o["label"], o["ho"]) for o in occ}
+    assert ("제2조", "제3조", 5) in keys, occ
+    assert ("제4조", "제3조", 1) in keys, occ
+    assert len(occ) == 2                      # 조례 조문별로 별개
+
+
 def test_carryover_crosses_article_boundary():
     """'같은 법'이 앞 조문에서 정의된 법령에 연결되어야 한다(조문 경계 넘김)."""
     articles = [

@@ -97,18 +97,18 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                         "law_id": law_id, "enforce_date": old_enforce, "body_xml": vxml}
                 old_arts = old_cache[vsel["mst"]]
 
-        clause_articles = g.get("clause_articles", {})
-        clause_seq = g.get("clause_seq", {})
-        clause_specs = g.get("clause_specs", {})
-        for label in g["clause_labels"]:
+        # 조례 조문별 인용 1건씩 판정(조례 기준) — 같은 상위법 조라도 인용한 조례 조문·
+        # 호/목이 다르면 별개 finding. 인용한 그 호/목만 비교한다.
+        for occ in g.get("occurrences", []):
+            label = occ["label"]
+            subspec = (occ["hang"], occ["ho"], occ["mok"])
             if deep and old_arts is not None:
                 f = checks.diff_clause(old_arts, cur_arts, label, ord_enforce,
-                                       name, law_id, old_enforce,
-                                       subspec=clause_specs.get(label))
+                                       name, law_id, old_enforce, subspec=subspec)
             else:
                 f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
-            f["ord_clause"] = ", ".join(clause_articles.get(label, []))
-            f["ord_seq"] = clause_seq.get(label, 0)
+            f["ord_clause"] = occ["ord_article"]
+            f["ord_seq"] = occ["ord_seq"]
             f["cite_naked"] = 1 if naked_any else 0
             findings.append(f)
 

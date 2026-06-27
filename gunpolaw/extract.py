@@ -224,6 +224,16 @@ def _resolve_specs(specs_by_label):
     return out
 
 
+def _dedup_occurrences(occs):
+    """(조례조문, 상위법조, 항, 호, 목)별 1건으로 dedup(최소 등장순서 보존), 순서대로 정렬."""
+    by = {}
+    for o in occs:
+        k = (o["ord_article"], o["label"], o["hang"], o["ho"], o["mok"])
+        if k not in by or o["ord_seq"] < by[k]["ord_seq"]:
+            by[k] = o
+    return sorted(by.values(), key=lambda o: (o["ord_seq"], _clause_sort_key(o["label"])))
+
+
 def group_by_law(refs):
     """추출 ref들을 법령명 단위로 묶어 조 라벨을 합친다.
 
@@ -245,10 +255,15 @@ def group_by_law(refs):
             "clause_articles": {}, "law_articles": set(),
             "clause_seq": {}, "law_seq": None, "sources": set(),
             "clause_specs": {},   # {label: set((hang,ho,mok))}
+            "occurrences": [],    # 조례 조문별 인용 1건씩 (조례 기준 finding 단위)
         })
+        _oa, _sq = r.get("ord_article") or "", r.get("ord_seq") or 0
         for t in r.get("clause_tokens", []):
             g["clause_specs"].setdefault(t["label"], set()).add(
                 (t.get("hang"), t.get("ho"), t.get("mok")))
+            g["occurrences"].append({
+                "label": t["label"], "ord_article": _oa, "ord_seq": _sq,
+                "hang": t.get("hang"), "ho": t.get("ho"), "mok": t.get("mok")})
         # 출처 추적: 평이한 「」 인용(alias_source None)은 'bracket' 으로 기록.
         g["sources"].add(r.get("alias_source") or "bracket")
         oa = r.get("ord_article") or ""
@@ -283,6 +298,8 @@ def group_by_law(refs):
             "law_seq": g["law_seq"] or 0,
             # 조별 인용 세부단위: 그 조에 단일 호/목만 인용됐을 때만 좁힌다(여러 개면 None=조 전체)
             "clause_specs": _resolve_specs(g["clause_specs"]),
+            # 조례 조문 × 상위법조 × 호/목 단위로 dedup — finding 1건의 단위(조례 기준)
+            "occurrences": _dedup_occurrences(g["occurrences"]),
             "alias_sources": sorted(g["alias_sources"]),
             # 서식 판정: 맨몸 인용 포함 여부 / 맨몸으로만 잡혔는지(해소 실패 시 침묵 드롭 기준)
             "naked_any": "naked" in g["sources"],

@@ -461,7 +461,9 @@ def _item_block(it, collapsible=False):
             f'{_basis_line(it)}{_evidence_block(it)}')
     if collapsible:
         cls = "item citem cur" if it["grade"] == "current" else "item citem"
-        return (f'<details class="{cls}" data-law="{_esc(it["law_name"])}"'
+        oc = (it.get("ord_clause") or "").split(",")[0].strip()
+        return (f'<details class="{cls}" data-oc="{_esc(oc)}"'
+                f' data-law="{_esc(it["law_name"])}"'
                 f' data-clause="{_esc(it["clause_label"])}">'
                 f'<summary class="iline">{head}</summary>{body}</details>')
     return (f'<div class="item"><div class="iline">{head}</div>{body}</div>')

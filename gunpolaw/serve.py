@@ -447,11 +447,13 @@ async function selectOrd(mst){
   wireFocus(dp);
 }
 function wireFocus(dp){
-  const citem=(law,cl)=>dp.querySelector(
-    `.drec .citem[data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`);
-  // 좌 인용 클릭 → 우 해당 검토항목 펼침 + 강조(조례 조문 안 여러 인용도 각각 매칭)
+  // 조례 조문(oc)+법령+조 로 매칭 — 같은 조라도 조례 조문이 다르면 다른 항목
+  const citem=(oc,law,cl)=>dp.querySelector(
+    `.drec .citem[data-oc="${cssq(oc||"")}"][data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`)
+    || dp.querySelector(`.drec .citem[data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`);
+  // 좌 인용 클릭 → 우 해당 검토항목 펼침 + 강조
   dp.querySelectorAll(".dbody mark[data-law]").forEach(mk=>mk.onclick=()=>{
-    const it=citem(mk.dataset.law, mk.dataset.clause);
+    const it=citem(mk.dataset.oc, mk.dataset.law, mk.dataset.clause);
     if(it){it.open=true; it.classList.add("focus");
       setTimeout(()=>it.classList.remove("focus"),1600); flash(it);}
     else flash(dp.querySelector(`.drec .artsec[data-oc="${cssq(mk.dataset.oc)}"]`));
@@ -459,7 +461,7 @@ function wireFocus(dp){
   // 우 검토항목 펼침 → 좌 본문의 해당 인용 강조(스크롤 다툼 방지 위해 강조만)
   dp.querySelectorAll(".drec .citem").forEach(it=>it.addEventListener("toggle",()=>{
     if(!it.open)return;
-    dp.querySelectorAll(`.dbody mark[data-law="${cssq(it.dataset.law)}"][data-clause="${cssq(it.dataset.clause||"")}"]`)
+    dp.querySelectorAll(`.dbody mark[data-oc="${cssq(it.dataset.oc||"")}"][data-law="${cssq(it.dataset.law)}"][data-clause="${cssq(it.dataset.clause||"")}"]`)
       .forEach(mk=>{mk.classList.add("cite-focus");
         setTimeout(()=>mk.classList.remove("cite-focus"),1600);});
   }));
