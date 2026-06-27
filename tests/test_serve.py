@@ -106,8 +106,10 @@ def test_detail_shape():
     assert d["meta"]["name"] == "가 조례"
     assert d["recommend"]["found"] is True       # 정비 항목 있음
     assert d["recommend"]["items_count"] >= 1
-    # 현행만인 조례는 권고 없음
-    assert ordinance_detail(path, "3")["recommend"]["found"] is False
+    # 현행만인 조례도 통합 뷰에선 '검토 완료'로 표시(include_current) → found True
+    d3 = ordinance_detail(path, "3")
+    assert d3["recommend"]["found"] is True
+    assert d3["recommend"]["items_count"] >= 1
     os.unlink(path)
 
 

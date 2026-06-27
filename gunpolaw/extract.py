@@ -103,10 +103,12 @@ def _resolve_same(last_law, kind):
 
 
 def _ref(name, clause, alias_source, ord_article="", ord_seq=0, span=None, raw=""):
+    toks = tokenize_clauses(clause)
     return {
         "name": name,
         "clause": clause,
-        "clause_labels": [t["label"] for t in tokenize_clauses(clause)],
+        "clause_labels": [t["label"] for t in toks],
+        "clause_tokens": toks,              # 항·호·목 포함(호/목 단위 비교용)
         "alias_source": alias_source,
         "type": classify(name),
         "ord_article": ord_article or "",   # 인용이 등장한 조례 조문(제Y조)
@@ -209,6 +211,19 @@ def _clause_sort_key(label):
             int(ga.group(1)) if ga else 0)
 
 
+def _resolve_specs(specs_by_label):
+    """{label: set((hang,ho,mok))} → {label: (hang,ho,mok)}.
+
+    한 조에 '단일한 세부단위'만 인용됐을 때만 그 단위로 좁힌다. 여러 호/목이 섞이거나
+    조 전체 인용이 함께 있으면 None(=조 전체 비교) — 좁혀서 일부를 놓치는 일이 없도록.
+    """
+    out = {}
+    for label, specs in specs_by_label.items():
+        nontrivial = {s for s in specs if any(s)}
+        out[label] = next(iter(nontrivial)) if len(nontrivial) == 1 and len(specs) == 1 else None
+    return out
+
+
 def group_by_law(refs):
     """추출 ref들을 법령명 단위로 묶어 조 라벨을 합친다.
 
@@ -229,7 +244,11 @@ def group_by_law(refs):
             "clause_labels": set(), "alias_sources": set(),
             "clause_articles": {}, "law_articles": set(),
             "clause_seq": {}, "law_seq": None, "sources": set(),
+            "clause_specs": {},   # {label: set((hang,ho,mok))}
         })
+        for t in r.get("clause_tokens", []):
+            g["clause_specs"].setdefault(t["label"], set()).add(
+                (t.get("hang"), t.get("ho"), t.get("mok")))
         # 출처 추적: 평이한 「」 인용(alias_source None)은 'bracket' 으로 기록.
         g["sources"].add(r.get("alias_source") or "bracket")
         oa = r.get("ord_article") or ""
@@ -262,6 +281,8 @@ def group_by_law(refs):
             "law_articles": sorted(g["law_articles"], key=_clause_sort_key),
             "clause_seq": dict(g["clause_seq"]),
             "law_seq": g["law_seq"] or 0,
+            # 조별 인용 세부단위: 그 조에 단일 호/목만 인용됐을 때만 좁힌다(여러 개면 None=조 전체)
+            "clause_specs": _resolve_specs(g["clause_specs"]),
             "alias_sources": sorted(g["alias_sources"]),
             # 서식 판정: 맨몸 인용 포함 여부 / 맨몸으로만 잡혔는지(해소 실패 시 침묵 드롭 기준)
             "naked_any": "naked" in g["sources"],

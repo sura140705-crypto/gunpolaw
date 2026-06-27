@@ -12,7 +12,8 @@ JO_SINGLE_RE = re.compile(r'제(\d+)조(?:의(\d+))?')
 JO_RANGE_RE = re.compile(
     r'제(\d+)조(?:의(\d+))?\s*부터\s*제(\d+)조(?:의(\d+))?\s*까지'
 )
-HANG_HO_RE = re.compile(r'제(\d+)항(?:제(\d+)호)?')
+# 조 뒤의 항·호·목(각각 선택). "제3항제5호나목" / "제5호" / "제3항" / "나목" 모두 수용.
+SUBUNIT_RE = re.compile(r'\s*(?:제(\d+)항)?\s*(?:제(\d+)호)?\s*(?:([가-힣])목)?')
 
 
 def to_label(jo, ga=0):
@@ -23,7 +24,8 @@ def to_label(jo, ga=0):
 def tokenize_clauses(clause_text):
     """조항 표현 문자열을 개별 조 라벨 리스트로 전개.
 
-    Returns: [{"label","jo","ga","hang","ho"}, ...] (label 기준 중복 제거)
+    Returns: [{"label","jo","ga","hang","ho","mok"}, ...] (label 기준 중복 제거)
+    hang/ho/mok = 인용된 항·호·목(있으면) — 호/목 단위로 좁혀 비교하기 위함.
     """
     if not clause_text:
         return []
@@ -38,15 +40,15 @@ def tokenize_clauses(clause_text):
         if n1 == n2:
             for g in range(s1, s2 + 1):
                 tokens.append({"label": to_label(n1, g), "jo": n1, "ga": g,
-                               "hang": None, "ho": None})
+                               "hang": None, "ho": None, "mok": None})
         else:
             tokens.append({"label": to_label(n1, s1), "jo": n1, "ga": s1,
-                           "hang": None, "ho": None})
+                           "hang": None, "ho": None, "mok": None})
             for k in range(n1 + 1, n2):
                 tokens.append({"label": to_label(k, 0), "jo": k, "ga": 0,
-                               "hang": None, "ho": None})
+                               "hang": None, "ho": None, "mok": None})
             tokens.append({"label": to_label(n2, s2), "jo": n2, "ga": s2,
-                           "hang": None, "ho": None})
+                           "hang": None, "ho": None, "mok": None})
         consumed.append(m.span())
 
     # 2) 범위 밖 영역에서 단일 조 + 항/호
@@ -64,16 +66,17 @@ def tokenize_clauses(clause_text):
         for m in JO_SINGLE_RE.finditer(sub):
             jo, ga = int(m.group(1)), int(m.group(2) or 0)
             tail = sub[m.end(): m.end() + 30]
-            hh = HANG_HO_RE.match(tail)
-            hang = int(hh.group(1)) if hh else None
-            ho = int(hh.group(2)) if (hh and hh.group(2)) else None
+            su = SUBUNIT_RE.match(tail)
+            hang = int(su.group(1)) if (su and su.group(1)) else None
+            ho = int(su.group(2)) if (su and su.group(2)) else None
+            mok = su.group(3) if (su and su.group(3)) else None
             label = to_label(jo, ga)
-            key = (label, hang, ho)
+            key = (label, hang, ho, mok)
             if key in seen:
                 continue
             seen.add(key)
             tokens.append({"label": label, "jo": jo, "ga": ga,
-                           "hang": hang, "ho": ho})
+                           "hang": hang, "ho": ho, "mok": mok})
 
     # label 기준 중복 제거 (시점 검증은 label만 필요)
     uniq = {}

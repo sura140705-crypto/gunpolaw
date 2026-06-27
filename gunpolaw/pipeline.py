@@ -99,10 +99,12 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
 
         clause_articles = g.get("clause_articles", {})
         clause_seq = g.get("clause_seq", {})
+        clause_specs = g.get("clause_specs", {})
         for label in g["clause_labels"]:
             if deep and old_arts is not None:
                 f = checks.diff_clause(old_arts, cur_arts, label, ord_enforce,
-                                       name, law_id, old_enforce)
+                                       name, law_id, old_enforce,
+                                       subspec=clause_specs.get(label))
             else:
                 f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
             f["ord_clause"] = ", ".join(clause_articles.get(label, []))

@@ -189,7 +189,8 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
         where = "WHERE o.dept = ?"
         args = [dept]
     rows = conn.execute(
-        f"""SELECT f.mst, f.law_name, f.clause_label, f.severity, f.change_type,
+        f"""SELECT f.mst, f.law_name, f.clause_label, {sel('clause_detail')},
+                  f.severity, f.change_type,
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
                   f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
                   {sel('cite_naked', '0')},
@@ -233,6 +234,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                 "grade": g,
                 "law_name": r["law_name"] or "",
                 "clause_label": r["clause_label"] or "",
+                "clause_detail": r["clause_detail"] or "",
                 "change_type": r["change_type"] or "",
                 "ord_clause": r["ord_clause"] or "",
                 "ord_seq": r["ord_seq"] if r["ord_seq"] is not None else 999999,
@@ -249,6 +251,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                 "grade": "current",
                 "law_name": r["law_name"] or "",
                 "clause_label": r["clause_label"] or "",
+                "clause_detail": r["clause_detail"] or "",
                 "change_type": "동일",
                 "ord_clause": r["ord_clause"] or "",
                 "ord_seq": r["ord_seq"] if r["ord_seq"] is not None else 999999,
@@ -446,7 +449,9 @@ def _item_block(it, collapsible=False):
     # 서식=서식, 현행=변경 없음, 그 외=변경유형
     tag = {"format": "서식", "current": "✅ 변경 없음"}.get(
         it["grade"], it["change_type"] or GRADE_META[it["grade"]]["label"])
-    law = f'「{_esc(it["law_name"])}」 {_esc(it["clause_label"])}'.rstrip()
+    # 인용된 호·목까지 표기(제3조제5호나목) — 좁혀 판정한 단위를 그대로 보여줌
+    clause_full = (it["clause_label"] or "") + (it.get("clause_detail") or "")
+    law = f'「{_esc(it["law_name"])}」 {_esc(clause_full)}'.rstrip()
     # 내용변경+맨몸은 별도 「」누락 배지, 서식정비(format) 항목은 태그 자체가 서식이라 생략
     naked = ('<span class="tag t-naked">「」누락</span>'
              if it.get("cite_naked") and it["grade"] != "format" else "")

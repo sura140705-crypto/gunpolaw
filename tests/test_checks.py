@@ -11,7 +11,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gunpolaw.checks import amend_dates, basis_dates, diff_clause
+from gunpolaw.checks import (amend_dates, basis_dates, diff_clause,
+                             extract_subunit, subspec_label)
+from gunpolaw.clauses import tokenize_clauses
 
 _CONTENT = ("제2조(정의) 이 법에서 사용하는 용어의 뜻은 다음과 같다. "
             "<개정 2012.12.11, 2013.5.28, 2015.11.20, 2018.6.12>")
@@ -95,6 +97,63 @@ def test_diff_clause_no_tag_falls_back_to_content():
     cur2 = _art("새 내용", enforce="")
     f2 = diff_clause(old2, cur2, "제2조", "20190709", "건축법", "L")
     assert f2["change_type"] == "내용변경"
+
+
+# ---------- 호·목 단위 인용 ----------
+_DEF = "\n".join([
+    "제3조(정의) 이 법에서 쓰는 용어. <개정 2019.3.26, 2025.1.7>",
+    '1.  "재난"이란 다음 각 목의 것.',
+    "가.  자연재난: 태풍, 홍수",
+    "나.  사회재난: 화재, 붕괴",
+    '5.  "재난관리책임기관"이란 다음 기관.',
+    "가.  중앙행정기관",
+    "나.  지방행정기관ㆍ공공기관",
+    '6.  "긴급구조"란 인명구조 활동.',
+])
+
+
+def test_tokenize_captures_ho_mok():
+    t = tokenize_clauses("제3조제5호나목")[0]
+    assert (t["jo"], t["ho"], t["mok"]) == (3, 5, "나"), t
+    t2 = tokenize_clauses("제16조제3항")[0]
+    assert (t2["jo"], t2["hang"], t2["ho"]) == (16, 3, None), t2
+
+
+def test_extract_subunit_ho_and_mok():
+    # 제5호 전체
+    ho5 = extract_subunit(_DEF, None, 5, None)
+    assert "재난관리책임기관" in ho5 and "지방행정기관" in ho5
+    assert "긴급구조" not in ho5 and "자연재난" not in ho5      # 다른 호 제외
+    # 제5호 나목만
+    na = extract_subunit(_DEF, None, 5, "나")
+    assert "지방행정기관" in na and "중앙행정기관" not in na
+    # 못 찾으면 None(폴백)
+    assert extract_subunit(_DEF, None, 99, None) is None
+
+
+def test_diff_clause_subunit_unchanged_is_current():
+    """제5호나목이 당시·현행 동일하면, 조 전체가 개정됐어도 '변경 없음'."""
+    old = _art(_DEF, "제3조")
+    cur = _art(_DEF.replace("자연재난: 태풍, 홍수", "자연재난: 태풍, 홍수, 우주물체"), "제3조")
+    # 조 전체로는 (자연재난이 바뀌어) 내용변경이지만, 인용은 제5호나목 → 그 부분은 동일
+    f = diff_clause(old, cur, "제3조", "20190418", "재난안전법", "L",
+                    subspec=(None, 5, "나"))
+    assert f["severity"] == "current" and f["change_type"] == "동일", f
+    assert f["clause_detail"] == "제5호나목"
+
+
+def test_diff_clause_subunit_changed_is_review():
+    old = _art(_DEF, "제3조")
+    cur = _art(_DEF.replace("지방행정기관ㆍ공공기관", "지방행정기관ㆍ공공기관ㆍ공공단체"), "제3조")
+    f = diff_clause(old, cur, "제3조", "20190418", "재난안전법", "L",
+                    subspec=(None, 5, "나"))
+    assert f["severity"] == "review" and f["change_type"] == "내용변경", f
+    assert "공공단체" in f["evidence"] and "긴급구조" not in f["evidence"]   # 그 목만
+
+
+def test_subspec_label():
+    assert subspec_label(None, 5, "나") == "제5호나목"
+    assert subspec_label(3, None, None) == "제3항"
 
 
 def _run():

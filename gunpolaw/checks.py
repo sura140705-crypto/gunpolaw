@@ -133,8 +133,71 @@ def _norm(s):
     return re.sub(r"\s+", "", s or "")
 
 
+# ---------- 인용된 항·호·목만 잘라내기(호/목 단위 비교) ----------
+_HANG_RE = re.compile(r"^\s*([①-⑳])")        # ①②③…
+_HO_RE = re.compile(r"^\s*(\d+(?:의\d+)?)\.")           # 1.  5의2.
+_MOK_RE = re.compile(r"^\s*([가-힣])\.")                # 가.  나.
+
+
+def _circled(n):
+    return chr(0x2460 + n - 1) if 1 <= n <= 20 else ""
+
+
+def subspec_label(hang=None, ho=None, mok=None):
+    """(항,호,목) → '제3항제5호나목' 식 라벨(표시·정렬용)."""
+    s = ""
+    if hang:
+        s += f"제{hang}항"
+    if ho:
+        s += f"제{ho}호"
+    if mok:
+        s += f"{mok}목"
+    return s
+
+
+def extract_subunit(content, hang=None, ho=None, mok=None):
+    """조문 본문(조문내용\\n항\\n호\\n목 형태)에서 인용된 항·호·목만 잘라낸다.
+
+    못 찾으면 None → 호출측이 조 전체로 폴백(좁히다 놓치는 일 방지). 항/호/목은
+    바깥→안 순으로 좁힌다(항 범위 → 그 안 호 → 그 안 목).
+    """
+    if not content or not (hang or ho or mok):
+        return None
+    block = content.split("\n")
+
+    def narrow(lines, rx, key, *stop):
+        start = None
+        for i, ln in enumerate(lines):
+            m = rx.match(ln)
+            if m and m.group(1) == key:
+                start = i
+                break
+        if start is None:
+            return None
+        end = len(lines)
+        for j in range(start + 1, len(lines)):
+            if rx.match(lines[j]) or any(s.match(lines[j]) for s in stop):
+                end = j
+                break
+        return lines[start:end]
+
+    if hang:
+        block = narrow(block, _HANG_RE, _circled(hang))
+        if block is None:
+            return None
+    if ho:
+        block = narrow(block, _HO_RE, str(ho), _HANG_RE)
+        if block is None:
+            return None
+    if mok:
+        block = narrow(block, _MOK_RE, mok, _HO_RE, _HANG_RE)
+        if block is None:
+            return None
+    return "\n".join(block).strip() or None
+
+
 def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_id="",
-                old_enforce=""):
+                old_enforce="", subspec=None):
     """2단계: 현행 조문의 <개정> 태그(꺽쇠 날짜)를 1차 기준으로 변경 여부를 판정하고,
     당시 시행본 내용이 있으면 diff 근거를 덧붙인다.
 
@@ -146,7 +209,7 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
     """
     base = {"law_id": law_id, "law_name": law_name, "clause_label": clause_label,
             "ord_enforce": ord_enforce, "category": "timing", "clause_enforce": "",
-            "old_enforce": old_enforce, "evidence": ""}
+            "old_enforce": old_enforce, "evidence": "", "clause_detail": ""}
     old = old_arts.get(clause_label)
     cur = cur_arts.get(clause_label)
 
@@ -179,6 +242,24 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
             return (f"[당시] {old['content'][:EVIDENCE_CHARS]}\n"
                     f"[현행] {cur['content'][:EVIDENCE_CHARS]}")
         return f"[현행] {cur['content'][:EVIDENCE_CHARS]}"
+
+    # 인용이 특정 항·호·목이면 그 부분만 당시↔현행 비교(조 전체 개정 대신 정밀 판정).
+    # 좁히기 성공 시 호·목 단위로 변경 여부를 확정한다(놓치면 아래 조 전체 판정으로 폴백).
+    if subspec and old and any(subspec):
+        hang, ho, mok = subspec
+        old_sub = extract_subunit(old["content"], hang, ho, mok)
+        cur_sub = extract_subunit(cur["content"], hang, ho, mok)
+        if old_sub is not None and cur_sub is not None:
+            det = subspec_label(hang, ho, mok)
+            base["clause_detail"] = det
+            if _norm(old_sub) == _norm(cur_sub):
+                return {**base, "category": "current", "severity": "current",
+                        "change_type": "동일",
+                        "detail": f"{clause_label}{det} 는 조례 시행 이후 변경 없음"
+                                  f"(인용한 호·목 동일) — 현행 정합"}
+            return {**base, "severity": "review", "change_type": "내용변경",
+                    "evidence": f"[당시] {old_sub[:EVIDENCE_CHARS]}\n[현행] {cur_sub[:EVIDENCE_CHARS]}",
+                    "detail": f"{clause_label}{det} 가 조례 시행({_ymd(ord_enforce)}) 이후 개정됨 — 검토 필요"}
 
     if amended_after is True:
         gap = f" (개정 {was}→{now})" if (was and now and was != now) else ""

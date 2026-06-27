@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS findings (
     law_id          TEXT,
     law_name        TEXT,
     clause_label    TEXT,
+    clause_detail   TEXT,            -- 인용된 항·호·목(제5호나목 등) — 그 단위로 좁혀 판정
     category        TEXT,            -- timing / status / current
     severity        TEXT,            -- review(검토필요) / check(확인) / current
     change_type     TEXT,            -- 내용변경 / 번호이동 / 삭제 / 동일 (2단계)
@@ -133,7 +134,7 @@ def init_db(db_path=DEFAULT_DB):
     fcols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
     for name, decl in (("change_type", "TEXT"), ("ord_clause", "TEXT"),
                        ("ord_seq", "INTEGER"), ("old_enforce", "TEXT"),
-                       ("cite_naked", "INTEGER")):
+                       ("cite_naked", "INTEGER"), ("clause_detail", "TEXT")):
         if name not in fcols:
             conn.execute(f"ALTER TABLE findings ADD COLUMN {name} {decl}")
     ocols = [r[1] for r in conn.execute("PRAGMA table_info(ordinances)")]
