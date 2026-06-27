@@ -156,6 +156,27 @@ def test_ord_block_shows_ordinance_text():
     assert 'class="ordtext"' in h and "이 조례는 「건축법」" in h, h
 
 
+def test_ord_block_collapsible_items():
+    """collapsible=True면 인용 항목이 <details.citem>(접힘)이고 (law,clause) 키를 갖는다.
+    한 조례 조문 안 여러 인용도 각각 별도 항목으로."""
+    o = {"mst": "1", "name": "테스트 조례", "enforce_date": "20200101",
+         "grades": {k: 0 for k in GRADE_KEYS}, "articles_text": {"제2조": "조례 제2조 원문"},
+         "items": [
+            {"grade": "review", "law_name": "재난 및 안전관리 기본법", "clause_label": "제16조",
+             "change_type": "내용변경", "ord_clause": "제2조", "ord_seq": 0, "action": "a1", "evidence": ""},
+            {"grade": "review", "law_name": "재난 및 안전관리 기본법 시행령", "clause_label": "제21조의2",
+             "change_type": "내용변경", "ord_clause": "제2조", "ord_seq": 1, "action": "a2", "evidence": ""}]}
+    o["grades"]["review"] = 2
+    h = _ord_block(o, collapsible=True)
+    assert h.count('<details class="item citem"') == 2          # 인용 2개 각각 항목
+    assert 'data-law="재난 및 안전관리 기본법" data-clause="제16조"' in h
+    assert 'data-law="재난 및 안전관리 기본법 시행령" data-clause="제21조의2"' in h
+    assert "<summary" in h                                       # 헤드라인은 summary
+    assert 'class="ordtext"' not in h                            # collapsible은 좌측이 본문 담당
+    # 평면(기본)은 div.item, details 아님
+    assert "<details" not in _ord_block(o)
+
+
 def test_model_to_csv():
     model = {
         "summary": {},

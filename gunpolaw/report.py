@@ -297,6 +297,17 @@ h1 { font-size:24px; margin:0 0 4px; }
 .t-mech { background:#dbeafe; color:#1e40af;} .t-rev { background:#fef3c7; color:#92400e;}
 .t-chk { background:#f3f4f6; color:#374151;}
 .t-naked { background:#ede9fe; color:#5b21b6;}
+/* 접이식 인용 항목(대시보드 우측) — 기본 접힘, 좌측 인용 클릭 시 펼침 */
+details.citem { border-top:1px solid #f3f4f6; padding:0; }
+details.citem > summary { list-style:none; cursor:pointer; padding:9px 10px 9px 8px;
+    display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+details.citem > summary::-webkit-details-marker { display:none; }
+details.citem > summary::before { content:"▸"; color:#9ca3af; font-size:11px; margin-right:2px; }
+details.citem[open] > summary::before { content:"▾"; color:#2563eb; }
+details.citem[open] { background:#fbfcfe; }
+details.citem > .act { padding:2px 10px 0; } details.citem > .basis { padding:0 10px; }
+details.citem > .diff { margin:6px 10px 10px; }
+details.citem.focus { box-shadow:inset 3px 0 0 #2563eb; }
 .item .law { font-size:13px; font-weight:600; color:#374151; }
 .item .act { font-size:14px; margin:2px 0; }
 .basis { font-size:11.5px; color:#6b7280; margin:4px 0 6px; }
@@ -405,7 +416,10 @@ def _evidence_block(it):
     return f'<div class="diff">{compact}{note}{full}</div>'
 
 
-def _item_block(it):
+def _item_block(it, collapsible=False):
+    """인용 1건 권고. collapsible=True면 <details>로 접어 헤드라인(법령·등급)만 보이고,
+    펼치면 행동지시·기준일·diff. 좌측 본문 인용 클릭 시 (law,clause)로 이 항목을 편다.
+    """
     tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk",
                "format": "t-naked"}[it["grade"]]
     # 서식 정비 항목은 변경유형(동일)이 아니라 '서식'으로 표기
@@ -415,16 +429,18 @@ def _item_block(it):
     # 내용변경+맨몸은 별도 「」누락 배지, 서식정비(format) 항목은 태그 자체가 서식이라 생략
     naked = ('<span class="tag t-naked">「」누락</span>'
              if it.get("cite_naked") and it["grade"] != "format" else "")
-    return (
-        '<div class="item">'
-        f'<div class="iline"><span class="tag {tag_cls}">{_esc(tag)}</span>{naked}'
-        f'<span class="law">{law}</span></div>'
-        f'<div class="act">{_esc(it["action"])}</div>'
-        f'{_basis_line(it)}'
-        f'{_evidence_block(it)}</div>')
+    head = (f'<span class="tag {tag_cls}">{_esc(tag)}</span>{naked}'
+            f'<span class="law">{law}</span>')
+    body = (f'<div class="act">{_esc(it["action"])}</div>'
+            f'{_basis_line(it)}{_evidence_block(it)}')
+    if collapsible:
+        return (f'<details class="item citem" data-law="{_esc(it["law_name"])}"'
+                f' data-clause="{_esc(it["clause_label"])}">'
+                f'<summary class="iline">{head}</summary>{body}</details>')
+    return (f'<div class="item"><div class="iline">{head}</div>{body}</div>')
 
 
-def _ord_block(o):
+def _ord_block(o, collapsible=False):
     gr = o["grades"]
     badges = []
     for key, bcls in (("mechanical", "b-mech"), ("review", "b-rev"),
@@ -448,17 +464,19 @@ def _ord_block(o):
     atext = o.get("articles_text") or {}
     secs_html = []
     for art, group in sections:
-        body = "".join(_item_block(it) for it in group)
-        # 이 섹션에서 정비할 조례 조문(들)의 원문 — 무엇을 고칠지 바로 보이도록
-        labels = []
-        for it in group:
-            for a in (it.get("ord_clause") or "").split(","):
-                a = a.strip()
-                if a and a not in labels:
-                    labels.append(a)
-        ord_src = "".join(
-            f'<div class="ordtext"><b>{_esc(a)}</b> {_esc(atext.get(a, ""))}</div>'
-            for a in labels if atext.get(a))
+        body = "".join(_item_block(it, collapsible) for it in group)
+        # 조례 원문은 평면(독립 권고서)에서만 — 대시보드(collapsible)는 좌측 본문이 대신함
+        ord_src = ""
+        if not collapsible:
+            labels = []
+            for it in group:
+                for a in (it.get("ord_clause") or "").split(","):
+                    a = a.strip()
+                    if a and a not in labels:
+                        labels.append(a)
+            ord_src = "".join(
+                f'<div class="ordtext"><b>{_esc(a)}</b> {_esc(atext.get(a, ""))}</div>'
+                for a in labels if atext.get(a))
         secs_html.append(
             f'<div class="artsec" data-oc="{_esc(art)}">'
             f'<div class="arthd">조례 {_esc(art)}</div>{ord_src}{body}</div>')
@@ -490,12 +508,13 @@ def render_html(model, generated_at="", title="군포시 자치법규 정비 권
         "</div></body></html>")
 
 
-def recommend_fragment(mst, db_path=db.DEFAULT_DB):
-    """단일 조례(mst)의 권고 뷰 조각 — UI(STEP3) 임베드용.
+def recommend_fragment(mst, db_path=db.DEFAULT_DB, collapsible=False):
+    """단일 조례(mst)의 권고 뷰 조각 — UI(통합 뷰) 임베드용.
 
     반환: {found, mst, name, grades, items_count, html, css}
       - html : 권고서와 동일 마크업의 조례 1건 블록(<div class="ord">…). 정비항목 0이면 빈 문자열.
       - css  : 권고서 CSS(_CSS). 페이지에 1회만 주입하면 됨.
+    collapsible=True면 인용 항목을 <details>로 접어(대시보드 우측 패널) 좌측 본문 인용과 연동.
     findings 가 모두 current(현행)면 found=False, html='' (정비 불필요).
     """
     model = build_model(db_path, mst=mst)
@@ -506,7 +525,7 @@ def recommend_fragment(mst, db_path=db.DEFAULT_DB):
     o = ords[0]
     return {"found": True, "mst": str(mst), "name": o["name"],
             "grades": o["grades"], "items_count": len(o["items"]),
-            "html": _ord_block(o), "css": _CSS}
+            "html": _ord_block(o, collapsible=collapsible), "css": _CSS}
 
 
 def model_to_csv(model, dept=""):

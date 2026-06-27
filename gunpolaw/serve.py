@@ -172,7 +172,7 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
 
     meta = {k: o[k] for k in o.keys() if k != "body_xml"} if o else {}
     return {"meta": meta, "articles": articles,
-            "recommend": recommend_fragment(mst, db_path)}
+            "recommend": recommend_fragment(mst, db_path, collapsible=True)}
 
 
 # ---------- HTTP(읽기전용) ----------
@@ -317,13 +317,23 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .dbody{padding:12px 16px;border-right:1px solid #eef0f3;max-height:76vh;overflow:auto;}
 .drec{padding:6px 14px;max-height:76vh;overflow:auto;}
 .dcolhd{font-size:12px;color:#6b7280;font-weight:600;margin:2px 0 8px;}
-.art{margin:0 0 14px;scroll-margin-top:8px;}
-.art .ahd{font-size:12.5px;font-weight:700;color:#374151;margin-bottom:3px;}
-.art .atext{font-size:13px;line-height:1.75;white-space:pre-wrap;color:#1f2937;
-            word-break:break-word;}
+.art{margin:0 0 10px;scroll-margin-top:8px;border:1px solid #eef0f3;border-radius:9px;
+     padding:9px 13px;background:#fff;}
+.art.cited{border-left:3px solid #2563eb;}
+.art.nocite{background:#fafafa;opacity:.62;}
+.art .ahd{font-size:12px;font-weight:700;color:#1e3a8a;margin-bottom:5px;
+          display:flex;align-items:center;gap:7px;}
 .art.nocite .ahd{color:#9ca3af;}
-mark.cite-law{background:#dbeafe;color:#1e3a8a;border-radius:3px;padding:0 2px;cursor:pointer;}
+.art .ahd .ct{font-size:10.5px;font-weight:600;background:#dbeafe;color:#1e40af;
+              border-radius:999px;padding:1px 8px;}
+.art .atext{font-size:13px;line-height:1.95;white-space:pre-wrap;color:#1f2937;
+            word-break:break-word;}
+mark.cite-law{background:#dbeafe;color:#1e3a8a;border-radius:3px;padding:0 2px;cursor:pointer;
+              transition:background .15s;}
+mark.cite-law:hover{background:#bfdbfe;}
 mark.cite-naked{background:#ede9fe;color:#5b21b6;border-radius:3px;padding:0 2px;cursor:pointer;}
+mark.cite-naked:hover{background:#ddd6fe;}
+mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .artsec{scroll-margin-top:8px;}
 .flash{animation:flash 1.4s ease;}
 @keyframes flash{0%{background:#fde68a;}70%{background:#fef3c7;}100%{background:transparent;}}
@@ -419,8 +429,8 @@ async function selectOrd(mst){
   const meta=`시행 ${fdate(m.enforce_date)} · 담당 ${esc(m.dept||"—")}`
     +(m.phone?` · ☎ ${esc(m.phone)}`:"");
   // 좌: 본문(조문별, 인용 하이라이트)
-  const left=arts.length?arts.map(a=>`<div class="art${a.cites?"":" nocite"}" data-oc="${esc(a.no)}">
-      <div class="ahd">${esc(a.no)}${a.title?" ("+esc(a.title)+")":""}${a.cites?` · 인용 ${a.cites}`:""}</div>
+  const left=arts.length?arts.map(a=>`<div class="art ${a.cites?'cited':'nocite'}" data-oc="${esc(a.no)}">
+      <div class="ahd">${esc(a.no)}${a.title?" ("+esc(a.title)+")":""}${a.cites?`<span class="ct">인용 ${a.cites}</span>`:""}</div>
       <div class="atext">${a.html}</div></div>`).join("")
     :`<div class="empty">본문이 없습니다(body_xml 미적재 — 재배치 필요).</div>`;
   // 우: 권고(report 조각)
@@ -430,19 +440,30 @@ async function selectOrd(mst){
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="dsplit">
        <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">「」 인용</span> / <span style="color:#5b21b6">맨몸 인용</span></div>${left}</div>
-       <div class="drec"><div class="dcolhd">🔧 정비 권고</div>${right}</div>
+       <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div>${right}</div>
      </div>`;
   dp.style.display="block";
   document.getElementById("layout").classList.add("detail-open");
   wireFocus(dp);
 }
 function wireFocus(dp){
-  // 좌 하이라이트 클릭 → 우 권고에서 같은 조례 조문 섹션으로
-  dp.querySelectorAll(".dbody mark[data-oc]").forEach(mk=>mk.onclick=()=>{
-    const oc=mk.dataset.oc;
-    flash(dp.querySelector(`.drec .artsec[data-oc="${cssq(oc)}"]`));
+  const citem=(law,cl)=>dp.querySelector(
+    `.drec .citem[data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`);
+  // 좌 인용 클릭 → 우 해당 검토항목 펼침 + 강조(조례 조문 안 여러 인용도 각각 매칭)
+  dp.querySelectorAll(".dbody mark[data-law]").forEach(mk=>mk.onclick=()=>{
+    const it=citem(mk.dataset.law, mk.dataset.clause);
+    if(it){it.open=true; it.classList.add("focus");
+      setTimeout(()=>it.classList.remove("focus"),1600); flash(it);}
+    else flash(dp.querySelector(`.drec .artsec[data-oc="${cssq(mk.dataset.oc)}"]`));
   });
-  // 우 권고 조문 헤더 클릭 → 좌 본문 해당 조문으로
+  // 우 검토항목 펼침 → 좌 본문의 해당 인용 강조(스크롤 다툼 방지 위해 강조만)
+  dp.querySelectorAll(".drec .citem").forEach(it=>it.addEventListener("toggle",()=>{
+    if(!it.open)return;
+    dp.querySelectorAll(`.dbody mark[data-law="${cssq(it.dataset.law)}"][data-clause="${cssq(it.dataset.clause||"")}"]`)
+      .forEach(mk=>{mk.classList.add("cite-focus");
+        setTimeout(()=>mk.classList.remove("cite-focus"),1600);});
+  }));
+  // 우 조문 헤더 클릭 → 좌 본문 해당 조문으로 스크롤
   dp.querySelectorAll(".drec .artsec[data-oc]").forEach(sec=>{
     const hd=sec.querySelector(".arthd");if(hd){hd.style.cursor="pointer";
       hd.onclick=()=>flash(dp.querySelector(`.dbody .art[data-oc="${cssq(sec.dataset.oc)}"]`));}
