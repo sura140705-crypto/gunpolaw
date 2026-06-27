@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gunpolaw.moleg import parse_law_articles, article_text
+from gunpolaw.moleg import parse_law_articles, article_text, law_name_of
 import xml.etree.ElementTree as ET
 
 
@@ -71,6 +71,12 @@ def test_article_text_order():
     u = ET.fromstring(_XML).find(".//조문단위")
     t = article_text(u)
     assert t.index("용어의 뜻") < t.index("재난") < t.index("해외재난"), t
+
+
+def test_law_name_of():
+    xml = '<법령><기본정보><법령명_한글>공간정보의 구축 및 관리 등에 관한 법률</법령명_한글></기본정보></법령>'
+    assert law_name_of(xml) == "공간정보의 구축 및 관리 등에 관한 법률"
+    assert law_name_of("") == "" and law_name_of("<a/>") == ""
 
 
 def _run():

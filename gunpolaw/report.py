@@ -133,6 +133,9 @@ def action_text(f):
     here = _get(f, "ord_clause")
     g = grade_of(_get(f, "severity"), ct)
     loc = f"이 조례 {here}" if here else "이 조례의 해당 조문"
+    # 제명변경: 인용한 법령명이 현행과 다름 → 인용 법령명 정정(detail에 신·구 명칭 포함)
+    if ct == "제명변경":   # detail에 신·구 명칭이 담겨 있음(인용 법령명 정정 안내)
+        return _get(f, "detail") or f"「{law}」 법령명 불일치 — 인용 법령명 정정"
     # 내용은 현행이지만 「」 없이 인용된 서식 결함 → 서식 정정만 안내(내용 변경 없음)
     if _get(f, "cite_naked") and _get(f, "severity") == "current":
         cl = f" {clause}" if clause else ""

@@ -42,6 +42,13 @@ def test_action_renumber_is_mechanical():
     assert "조문번호로 정정" in a and "제3조" in a
 
 
+def test_action_renamed_law():
+    """제명변경 — detail의 신·구 명칭 안내를 그대로 행동지시로."""
+    a = action_text(_f(severity="review", change_type="제명변경", clause_label="",
+                       detail="인용한 「의료법」이(가) 현행 법령명 「공공보건의료에 관한 법률」과(와) 다름 — 확인 후 정정"))
+    assert "공공보건의료에 관한 법률" in a and "정정" in a, a
+
+
 def test_action_unresolved_law():
     a = action_text(_f(severity="check", change_type="법령미해결", clause_label=""))
     assert "제명변경" in a and "폐지" in a

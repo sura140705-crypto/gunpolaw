@@ -223,6 +223,18 @@ def article_text(u):
     return "\n".join(p for p in parts if p)
 
 
+def law_name_of(xml):
+    """법령 본문 XML의 현행 법령명(<법령명_한글>). 제명변경 탐지용. 없으면 ''."""
+    if not xml:
+        return ""
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return ""
+    el = root.find(".//법령명_한글")
+    return (el.text or "").strip() if el is not None else ""
+
+
 def parse_law_articles(xml):
     """법령 본문 XML -> {라벨: 조문메타}. 조문이동 코드는 라벨로 decode."""
     if not xml:

@@ -160,10 +160,12 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
     conn.commit()
 
     law_cache, version_cache, old_cache, agg = {}, {}, {}, {}
+    name_cache = {}
     errors = 0
     for i, (mst, name) in enumerate(msts, 1):
         res = analyze_ordinance(mst, link_index, law_cache,
-                                deep=deep, version_cache=version_cache, old_cache=old_cache)
+                                deep=deep, version_cache=version_cache, old_cache=old_cache,
+                                law_name_cache=name_cache)
         if "error" in res:
             errors += 1
             if verbose:

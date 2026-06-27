@@ -103,10 +103,12 @@ def reparse_all(db_path=db.DEFAULT_DB, deep=None, verbose=True):
     conn.commit()
 
     law_cache, version_cache, old_cache, agg = {}, {}, {}, {}
+    name_cache = {}
     errors = 0
     for i, mst in enumerate(msts, 1):
         res = analyze_ordinance(mst, link_index={}, law_cache=law_cache, deep=deep,
-                                version_cache=version_cache, old_cache=old_cache, src=src)
+                                version_cache=version_cache, old_cache=old_cache, src=src,
+                                law_name_cache=name_cache)
         if "error" in res:
             errors += 1
             continue

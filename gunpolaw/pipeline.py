@@ -5,6 +5,8 @@
       인용 조항별 변경 판정 → findings.
 "API는 채울 때만" — 같은 법령 본문은 1회만 받아 캐시.
 """
+import re
+
 from . import moleg
 from . import checks
 from . import history
@@ -23,8 +25,14 @@ class LiveSource:
     body_with_xml_by_mst = staticmethod(history.body_with_xml_by_mst)
 
 
+def _name_key(s):
+    """법령명 비교용 정규화 — 공백·가운뎃점류 제거(제명변경만 잡고 표기차는 무시)."""
+    return re.sub(r"[\s·ㆍ・]", "", s or "")
+
+
 def analyze_ordinance(mst, link_index=None, law_cache=None,
-                      deep=False, version_cache=None, old_cache=None, src=None):
+                      deep=False, version_cache=None, old_cache=None, src=None,
+                      law_name_cache=None):
     """단일 조례 분석 -> {ordinance, findings, summary}.
 
     link_index: {정규화 법령명: 법령ID} (lnkOrg 사전, 선택). 법령ID 보강용.
@@ -46,6 +54,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     law_body_cache = law_cache if law_cache is not None else {}
     version_cache = version_cache if version_cache is not None else {}
     old_cache = old_cache if old_cache is not None else {}
+    law_name_cache = law_name_cache if law_name_cache is not None else {}
     findings = []
     fetched_laws = {}     # 이번 호출에서 새로 받은 법령(캐시 미스) — 배치가 DB 영속
     fetched_versions = {} # 새로 받은 당시 시행본 {버전MST: {law_id, enforce_date, body_xml}}
@@ -76,10 +85,31 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         if law_id not in law_body_cache:
             law_xml = src.get_law_body(law_id)
             law_body_cache[law_id] = moleg.parse_law_articles(law_xml)
+            law_name_cache[law_id] = moleg.law_name_of(law_xml)
             # 원본 XML도 함께 넘겨 영속 → 파싱 규칙이 바뀌어도 재수집 없이 오프라인 재파싱
             fetched_laws[law_id] = {"name": name, "articles": law_body_cache[law_id],
                                     "body_xml": law_xml or ""}
         cur_arts = law_body_cache[law_id]
+
+        # 제명변경: 인용한 법령명이 현행 법령명과 다르면(개칭/통폐합) 조례 인용명 정정 대상.
+        # 법제처 API가 개칭된 법을 자동 반환해 그냥 넘어가던 것을 표면화.
+        cur_law_name = law_name_cache.get(law_id, "")
+        renamed_to = (cur_law_name if cur_law_name
+                      and _name_key(cur_law_name) != _name_key(name) else "")
+        if renamed_to:
+            arts_cited = sorted({o["ord_article"] for o in g.get("occurrences", [])
+                                 if o["ord_article"]} | set(g.get("law_articles", [])),
+                                key=lambda a: int(re.search(r"\d+", a).group()) if a and re.search(r"\d+", a) else 0)
+            for oa in (arts_cited or [law_loc]):
+                findings.append({
+                    "law_id": law_id, "law_name": name, "clause_label": "",
+                    "clause_detail": "", "category": "status", "severity": "review",
+                    "change_type": "제명변경", "renamed_to": renamed_to,
+                    "detail": f"인용한 「{name}」이(가) 현행 법령명 「{renamed_to}」과(와) 다름 "
+                              f"— 제명변경(개칭) 또는 인용 오기 확인 후 법령명 정정",
+                    "ord_enforce": ord_enforce, "old_enforce": "", "clause_enforce": "",
+                    "evidence": "", "ord_clause": oa, "ord_seq": law_seq,
+                    "cite_naked": 1 if naked_any else 0})
 
         old_arts = None
         old_enforce = ""
