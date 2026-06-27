@@ -112,7 +112,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                               f"비교는 생략) [개칭 아니면 인용 오기 확인]",
                     "ord_enforce": ord_enforce, "old_enforce": "", "clause_enforce": "",
                     "evidence": "", "ord_clause": oa, "ord_seq": law_seq,
-                    "cite_naked": 1 if naked_any else 0})
+                    "cite_naked": 0})   # 제명변경은 명칭 정정 이슈 — 꺽쇠와 무관
             continue   # 이 법령은 조문별 판정 생략(전면 검토로 대체)
 
         old_arts = None
@@ -143,7 +143,8 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                 f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
             f["ord_clause"] = occ["ord_article"]
             f["ord_seq"] = occ["ord_seq"]
-            f["cite_naked"] = 1 if naked_any else 0
+            # 꺽쇠 권고는 '전체 법령명을 꺽쇠 없이' 쓴 그 인용에만(약칭 '법'·'같은 법'은 정상)
+            f["cite_naked"] = 1 if occ.get("naked") else 0
             findings.append(f)
 
     # 인용 refs에 해소된 law_id를 새겨 영속 — 조문 없는 법명-only 인용까지 매핑이 남아

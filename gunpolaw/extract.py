@@ -198,7 +198,8 @@ def _extract_segments(segments):
                     clause = (m.group(3) or "").strip()
                     if classify(redirect) in ("법령", "자치법규"):
                         last_law = redirect
-                    refs.append(_ref(redirect, clause, "naked", no, seq,
+                    # 약칭('법')의 띄어쓰기 오류일 뿐 — 정상 약칭 사용이라 꺽쇠 권고 대상 아님
+                    refs.append(_ref(redirect, clause, "alias", no, seq,
                                      span=m.span(), raw=m.group(0)))
                     continue
                 name = (base + (m.group(2) or "")).strip()
@@ -277,11 +278,12 @@ def group_by_law(refs):
             "occurrences": [],    # 조례 조문별 인용 1건씩 (조례 기준 finding 단위)
         })
         _oa, _sq = r.get("ord_article") or "", r.get("ord_seq") or 0
+        _naked = r.get("alias_source") == "naked"   # 꺽쇠 없는 '전체 법령명' 인용만 True
         for t in r.get("clause_tokens", []):
             g["clause_specs"].setdefault(t["label"], set()).add(
                 (t.get("hang"), t.get("ho"), t.get("mok")))
             g["occurrences"].append({
-                "label": t["label"], "ord_article": _oa, "ord_seq": _sq,
+                "label": t["label"], "ord_article": _oa, "ord_seq": _sq, "naked": _naked,
                 "hang": t.get("hang"), "ho": t.get("ho"), "mok": t.get("mok")})
         # 출처 추적: 평이한 「」 인용(alias_source None)은 'bracket' 으로 기록.
         g["sources"].add(r.get("alias_source") or "bracket")

@@ -97,6 +97,17 @@ def test_alias_def_with_broken_quote_and_glued_spacing():
     assert "경우에는법" not in g and "위원회는법" not in g, list(g)
 
 
+def test_naked_flag_only_for_bare_full_name():
+    """꺽쇠 권고(naked)는 '전체 법령명 맨몸'에만 — 약칭 '법'·「」 인용은 정상(naked=False)."""
+    text = '「주민등록법」(이하 "법"이라 한다) 제2조. 법 제3조에 따라. 도로교통법 제5조.'
+    g = group_by_law(extract_citations(text))
+    occ = {(o["label"], o["naked"]) for o in g["주민등록법"]["occurrences"]}
+    assert ("제2조", False) in occ      # 「」 인용 — 정상
+    assert ("제3조", False) in occ      # 약칭 '법' — 정상(꺽쇠 권고 X)
+    occ2 = {(o["label"], o["naked"]) for o in g["도로교통법"]["occurrences"]}
+    assert ("제5조", True) in occ2      # 맨몸 전체 법령명 → 꺽쇠 권고
+
+
 def test_real_law_ending_in_law_not_split():
     """약칭 '법'이 등록돼도 실제 법명(어간+법)은 쪼개지 않는다(수도법 등)."""
     text = '「수도법」(이하 "법"이라 한다) 제2조. 상수도법 제5조에 따라.'
