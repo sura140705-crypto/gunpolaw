@@ -20,6 +20,7 @@ import re
 from datetime import datetime
 
 from . import db
+from . import moleg
 
 
 # ---------- 등급 도출 ----------
@@ -195,6 +196,19 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None):
            {where}
            ORDER BY f.law_name, f.clause_label""", args
     ).fetchall()
+    # 조례 본문(조문별 텍스트) — 권고에 '무엇을 고칠지' 조례 원문을 함께 보여주기 위함
+    msts = {r["mst"] for r in rows}
+    body_articles = {}
+    if msts:
+        qm = ",".join("?" * len(msts))
+        for br in conn.execute(
+                f"SELECT mst, body_xml FROM ordinances WHERE mst IN ({qm})", list(msts)):
+            if not br["body_xml"]:
+                continue
+            parsed = moleg.parse_ordinance_body(br["body_xml"])
+            if "error" not in parsed:
+                body_articles[br["mst"]] = {
+                    a["no"]: a.get("body", "") for a in parsed["articles"] if a.get("no")}
     conn.close()
 
     by_mst = {}
@@ -209,6 +223,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None):
             "enforce_date": r["ord_enforce_date"] or r["ord_enforce"] or "",
             "grades": {k: 0 for k in GRADE_KEYS},
             "items": [],
+            "articles_text": body_articles.get(r["mst"], {}),
         })
         o["grades"][g] += 1
         if g != "current":
@@ -286,6 +301,17 @@ h1 { font-size:24px; margin:0 0 4px; }
 .item .act { font-size:14px; margin:2px 0; }
 .basis { font-size:11.5px; color:#6b7280; margin:4px 0 6px; }
 .basis b { color:#374151; font-weight:600; }
+.ordtext { font-size:12.5px; color:#1f2937; background:#f8fafc; border:1px solid #e5e7eb;
+           border-left:3px solid #94a3b8; border-radius:6px; padding:7px 10px; margin:4px 0 8px;
+           white-space:pre-wrap; line-height:1.6; }
+.ordtext b { color:#0f172a; margin-right:4px; }
+.dskip { font-size:11.5px; color:#9ca3af; text-align:center; padding:3px 0; font-style:italic; }
+details.dfull { margin-top:6px; }
+details.dfull > summary { font-size:12px; color:#2563eb; cursor:pointer; padding:3px 0;
+                         list-style:none; }
+details.dfull > summary::-webkit-details-marker { display:none; }
+details.dfull > summary::before { content:"▸ "; }
+details.dfull[open] > summary::before { content:"▾ "; }
 .item .ev { font-size:12px; color:#6b7280; white-space:pre-wrap;
             background:#f9fafb; border-radius:6px; padding:7px 9px; margin-top:6px; }
 .diff { border:1px solid #eef0f3; border-radius:6px; overflow:hidden; margin-top:6px; }
@@ -331,19 +357,52 @@ def _basis_line(it):
         f'현행 조문 <b>{_fmtdate(it.get("clause_enforce"))}</b></div>')
 
 
-def _evidence_block(it):
-    """내용변경이면 당시/현행 diff 하이라이트, 아니면 일반 근거 텍스트."""
-    old, new = _split_evidence(it.get("evidence", ""))
-    if old is not None:
-        o_html, n_html = _diff_marks(old, new)
-        return (
-            '<div class="diff">'
-            f'<div class="drow"><span class="dlabel was">당시</span>'
+def _drow(o_html, n_html):
+    return (f'<div class="drow"><span class="dlabel was">당시</span>'
             f'<span class="dtext">{o_html}</span></div>'
             f'<div class="drow"><span class="dlabel now">현행</span>'
-            f'<span class="dtext">{n_html}</span></div></div>')
-    ev = it.get("evidence", "")
-    return f'<div class="ev">{_esc(ev)}</div>' if ev else ""
+            f'<span class="dtext">{n_html}</span></div>')
+
+
+def _line_diff_blocks(old, new):
+    """항·호·목(줄 단위) diff. 바뀐 블록만 [(당시HTML, 현행HTML)] + 동일하게 생략된 줄수.
+
+    조문은 '조내용\\n항\\n호\\n목' 형태로 줄이 나뉘어 있어, 동일한 항·호·목은 통째로
+    건너뛰고 바뀐 부분만 토큰 하이라이트로 보여준다(긴 정의 조문의 가독성).
+    """
+    o_lines, n_lines = (old or "").split("\n"), (new or "").split("\n")
+    sm = difflib.SequenceMatcher(None, o_lines, n_lines, autojunk=False)
+    blocks, skipped = [], 0
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            skipped += (i2 - i1)
+            continue
+        oh, nh = _diff_marks("\n".join(o_lines[i1:i2]), "\n".join(n_lines[j1:j2]))
+        blocks.append((oh, nh))
+    return blocks, skipped
+
+
+def _evidence_block(it):
+    """내용변경이면 당시/현행 diff. 기본은 '바뀐 항·호·목만'(간략), 펼치면 전체 조문.
+
+    동일한 항·목은 생략(접힘). 변경 없는 줄이 있으면 [전체 조문 비교 펼치기]로 풀버전.
+    """
+    old, new = _split_evidence(it.get("evidence", ""))
+    if old is None:
+        ev = it.get("evidence", "")
+        return f'<div class="ev">{_esc(ev)}</div>' if ev else ""
+
+    blocks, skipped = _line_diff_blocks(old, new)
+    if not blocks:                       # 줄은 같고 토큰만 다름 → 전체 토큰 diff로 폴백
+        blocks = [_diff_marks(old, new)]
+    compact = "".join(_drow(oh, nh) for oh, nh in blocks)
+    if not skipped:                      # 전부 바뀌었으면 간략=전체, 펼치기 불필요
+        return f'<div class="diff">{compact}</div>'
+    note = f'<div class="dskip">⋯ 동일한 항·호·목 {skipped}개 생략 ⋯</div>'
+    fo, fn = _diff_marks(old, new)        # 전체 조문(펼치기)
+    full = (f'<details class="dfull"><summary>전체 조문 비교 펼치기</summary>'
+            f'{_drow(fo, fn)}</details>')
+    return f'<div class="diff">{compact}{note}{full}</div>'
 
 
 def _item_block(it):
@@ -386,12 +445,23 @@ def _ord_block(o):
     if buf:
         sections.append((cur_art, buf))
 
+    atext = o.get("articles_text") or {}
     secs_html = []
     for art, group in sections:
         body = "".join(_item_block(it) for it in group)
+        # 이 섹션에서 정비할 조례 조문(들)의 원문 — 무엇을 고칠지 바로 보이도록
+        labels = []
+        for it in group:
+            for a in (it.get("ord_clause") or "").split(","):
+                a = a.strip()
+                if a and a not in labels:
+                    labels.append(a)
+        ord_src = "".join(
+            f'<div class="ordtext"><b>{_esc(a)}</b> {_esc(atext.get(a, ""))}</div>'
+            for a in labels if atext.get(a))
         secs_html.append(
             f'<div class="artsec" data-oc="{_esc(art)}">'
-            f'<div class="arthd">조례 {_esc(art)}</div>{body}</div>')
+            f'<div class="arthd">조례 {_esc(art)}</div>{ord_src}{body}</div>')
 
     return (
         f'<div class="ord"><h2>{_esc(o["name"])}</h2>'

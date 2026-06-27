@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gunpolaw.report import (
     grade_of, action_text, build_model, render_html, model_to_csv,
-    _split_evidence, _diff_marks, _fmtdate)
+    _split_evidence, _diff_marks, _fmtdate, _line_diff_blocks, _evidence_block,
+    _ord_block, GRADE_KEYS)
 
 
 def test_grade_mapping():
@@ -120,6 +121,39 @@ def test_render_html_smoke():
     assert "테스트 조례" in h
     assert "&lt;x&gt;" in h          # evidence HTML 이스케이프
     assert "<x>" not in h            # 원본 꺾쇠는 새지 않음
+
+
+def test_line_diff_blocks_skips_identical():
+    """동일한 줄(항·호·목)은 생략하고 바뀐 줄만 블록으로."""
+    blocks, skipped = _line_diff_blocks("머리글\n가호 동일\n나호 옛", "머리글\n가호 동일\n나호 새")
+    assert skipped == 2, skipped          # 머리글·가호 동일
+    assert len(blocks) == 1               # 나호만 바뀜
+    assert "<mark" in blocks[0][1]        # 바뀐 줄 토큰 하이라이트
+
+
+def test_evidence_compact_and_expand():
+    """기본은 바뀐 부분만(+동일 생략 표시), 동일 줄 있으면 전체 펼치기 제공."""
+    it = {"evidence": "[당시] 머리글\n가호 동일\n나호 옛내용\n[현행] 머리글\n가호 동일\n나호 새내용"}
+    h = _evidence_block(it)
+    assert "동일한 항·호·목 2개 생략" in h, h
+    assert "전체 조문 비교 펼치기" in h
+    assert "새내용" in h
+    # 전부 바뀌면(동일 줄 없음) 펼치기 버튼 없이 간략=전체
+    h2 = _evidence_block({"evidence": "[당시] 가\n[현행] 나"})
+    assert "펼치기" not in h2 and "drow" in h2
+
+
+def test_ord_block_shows_ordinance_text():
+    """권고 섹션에 조례 조문 원문(무엇을 고칠지)을 함께 보여준다."""
+    o = {"mst": "1", "name": "테스트 조례", "enforce_date": "20200101",
+         "grades": {k: 0 for k in GRADE_KEYS}, "grades_": None,
+         "articles_text": {"제2조": "이 조례는 「건축법」 제2조를 따른다."},
+         "items": [{"grade": "review", "law_name": "건축법", "clause_label": "제2조",
+                    "change_type": "내용변경", "ord_clause": "제2조", "ord_seq": 0,
+                    "action": "검토", "evidence": ""}]}
+    o["grades"]["review"] = 1
+    h = _ord_block(o)
+    assert 'class="ordtext"' in h and "이 조례는 「건축법」" in h, h
 
 
 def test_model_to_csv():
