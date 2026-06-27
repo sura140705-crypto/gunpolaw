@@ -92,7 +92,7 @@ def persist_result(conn, mst, res, org="", update_ordinance=True):
                (mst, article_no, law_name, law_id, clause_label, alias_source,
                 raw_text, span_start, span_end, cite_naked, ord_seq, cite_type)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (mst, r.get("ord_article", ""), r["name"], "",
+            (mst, r.get("ord_article", ""), r["name"], r.get("law_id", ""),
              ",".join(r["clause_labels"]), r.get("alias_source") or "",
              r.get("raw", ""), s[0], s[1],
              1 if r.get("alias_source") == "naked" else 0,

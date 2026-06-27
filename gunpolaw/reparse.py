@@ -23,10 +23,24 @@ class _DBSource:
 
     def __init__(self, conn):
         self.conn = conn
-        # 법령명(정규화) → 법령ID : 이미 적재된 laws·연계로 구성(원배치가 쓴 ID와 동일)
+        # 법령명(정규화) → 법령ID. 라이브 resolve_law_id(API 퍼지검색)는 여러 이름 변형을
+        # 같은 ID로 풀지만, laws.name엔 '처음 받은 이름' 하나만 남는다. 직전 배치의 '실제
+        # 해소 결과'는 findings(law_name→law_id)에 전부 들어 있으므로 그걸 1순위로 쓴다.
         self._index = {}
+        # 1순위: citations.law_id — 배치가 새긴 해소 결과(조문 없는 법명-only 인용도 포함)
+        for r in conn.execute(
+                "SELECT DISTINCT law_name, law_id FROM citations "
+                "WHERE law_id IS NOT NULL AND law_id != ''"):
+            if r["law_name"]:
+                self._index[r["law_name"].replace(" ", "")] = r["law_id"]
+        # 2순위: findings(법명→ID) — citations.law_id 미적재 구 DB 호환
+        for r in conn.execute(
+                "SELECT DISTINCT law_name, law_id FROM findings "
+                "WHERE law_id IS NOT NULL AND law_id != ''"):
+            if r["law_name"]:
+                self._index.setdefault(r["law_name"].replace(" ", ""), r["law_id"])
         for r in conn.execute("SELECT law_id, name FROM laws WHERE name IS NOT NULL"):
-            self._index[r["name"].replace(" ", "")] = r["law_id"]
+            self._index.setdefault(r["name"].replace(" ", ""), r["law_id"])
         for r in conn.execute("SELECT law_id, law_name FROM ord_law_links"):
             if r["law_name"] and r["law_id"]:
                 self._index.setdefault(r["law_name"].replace(" ", ""), r["law_id"])

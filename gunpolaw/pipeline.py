@@ -49,6 +49,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     findings = []
     fetched_laws = {}     # 이번 호출에서 새로 받은 법령(캐시 미스) — 배치가 DB 영속
     fetched_versions = {} # 새로 받은 당시 시행본 {버전MST: {law_id, enforce_date, body_xml}}
+    resolved_ids = {}     # 법령명 → 해소된 law_id (citations 영속·오프라인 재파싱 재현용)
 
     for name, g in grouped.items():
         if g["type"] != "법령":          # 자치법규간 참조는 제외
@@ -59,6 +60,8 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         naked_any = g.get("naked_any", False)
         naked_only = g.get("naked_only", False)
         law_id = link_index.get(name.replace(" ", "")) or src.resolve_law_id(name)
+        if law_id:
+            resolved_ids[name] = law_id   # 조문 없는 법명-only 인용도 매핑 보존(재파싱 재현)
         if not law_id:
             # 맨몸으로만 잡힌 미해소 법명은 오탐 가능성이 높아 침묵 드롭(노이즈 억제).
             if naked_only:
@@ -106,6 +109,11 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
             f["ord_seq"] = clause_seq.get(label, 0)
             f["cite_naked"] = 1 if naked_any else 0
             findings.append(f)
+
+    # 인용 refs에 해소된 law_id를 새겨 영속 — 조문 없는 법명-only 인용까지 매핑이 남아
+    # 오프라인 재파싱(reparse)이 라이브 해소 결과를 그대로 재현한다.
+    for r in refs:
+        r["law_id"] = resolved_ids.get(r.get("name", ""), "")
 
     return {
         "ordinance": meta,
