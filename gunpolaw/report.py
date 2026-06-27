@@ -385,7 +385,8 @@ def _ord_block(o):
     for art, group in sections:
         body = "".join(_item_block(it) for it in group)
         secs_html.append(
-            f'<div class="artsec"><div class="arthd">조례 {_esc(art)}</div>{body}</div>')
+            f'<div class="artsec" data-oc="{_esc(art)}">'
+            f'<div class="arthd">조례 {_esc(art)}</div>{body}</div>')
 
     return (
         f'<div class="ord"><h2>{_esc(o["name"])}</h2>'

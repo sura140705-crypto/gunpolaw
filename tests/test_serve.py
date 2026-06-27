@@ -11,7 +11,9 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gunpolaw import db
-from gunpolaw.serve import overview, list_ordinances, ordinance_detail
+from gunpolaw.serve import (overview, list_ordinances, ordinance_detail,
+                            _highlight_article)
+from gunpolaw.extract import normalize_text
 
 
 def _make_db():
@@ -90,6 +92,56 @@ def test_detail_shape():
     assert d["recommend"]["items_count"] >= 1
     # 현행만인 조례는 권고 없음
     assert ordinance_detail(path, "3")["recommend"]["found"] is False
+    os.unlink(path)
+
+
+def test_highlight_wraps_citation_and_escapes():
+    body = '제2조(정의) 이 조례는 「건축법」 제2조 및 <b>주의</b>에 따른다.'
+    text = normalize_text(body)
+    target = "「건축법」 제2조"
+    s = text.index(target)
+    cites = [{"span_start": s, "span_end": s + len(target), "law_name": "건축법",
+              "clause_label": "제2조", "cite_naked": 0}]
+    h = _highlight_article("제2조", body, cites)
+    assert f'<mark class="cite-law" data-oc="제2조" data-law="건축법"' in h, h
+    assert ">「건축법」 제2조</mark>" in h, h
+    assert "&lt;b&gt;" in h and "<b>" not in h        # 본문 HTML 이스케이프
+    # 맨몸 인용은 cite-naked 클래스
+    h2 = _highlight_article("제2조", body, [{**cites[0], "cite_naked": 1}])
+    assert 'class="cite-naked"' in h2
+
+
+def test_highlight_skips_bad_spans():
+    body = "제1조 본문"
+    text = normalize_text(body)
+    # 범위 초과·역전 span 은 무시(예외 없이 본문 그대로)
+    bad = [{"span_start": 999, "span_end": 1000, "law_name": "x", "clause_label": "", "cite_naked": 0},
+           {"span_start": 5, "span_end": 2, "law_name": "y", "clause_label": "", "cite_naked": 0}]
+    h = _highlight_article("제1조", body, bad)
+    assert "<mark" not in h and "본문" in h
+
+
+def test_detail_articles_present():
+    """ordinance_detail 이 body_xml→조문별 하이라이트 HTML을 함께 반환."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    db.init_db(path)
+    ord_xml = ('<법령><자치법규기본정보><자치법규일련번호>7001</자치법규일련번호>'
+               '<자치법규명>샘플</자치법규명><시행일자>20100101</시행일자></자치법규기본정보>'
+               '<조문><조><조문번호>000200</조문번호><조문여부>Y</조문여부><조제목>정의</조제목>'
+               '<조내용>제2조 이 조례는 「건축법」 제2조에 따른다.</조내용></조></조문></법령>')
+    text = normalize_text("제2조 이 조례는 「건축법」 제2조에 따른다.")
+    t = "「건축법」 제2조"; s = text.index(t)
+    conn = db.connect(path)
+    conn.execute("INSERT INTO ordinances(mst,name,enforce_date,body_xml) VALUES('7001','샘플','20100101',?)", (ord_xml,))
+    conn.execute("INSERT INTO citations(mst,article_no,law_name,clause_label,span_start,span_end,cite_naked,cite_type)"
+                 " VALUES('7001','제2조','건축법','제2조',?,?,0,'법령')", (s, s + len(t)))
+    conn.commit(); conn.close()
+    d = ordinance_detail(path, "7001")
+    assert d["articles"], d
+    a = d["articles"][0]
+    assert a["no"] == "제2조" and a["cites"] == 1
+    assert '<mark class="cite-law"' in a["html"]
     os.unlink(path)
 
 

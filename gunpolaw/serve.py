@@ -12,11 +12,14 @@
 
 실행:  python -m gunpolaw --serve [포트]   (기본 8765)
 """
+import html
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from . import db
+from . import moleg
+from .extract import normalize_text
 from .report import GRADE_KEYS, GRADE_META, finding_grade, recommend_fragment
 
 
@@ -103,14 +106,71 @@ def list_ordinances(db_path=db.DEFAULT_DB, dept=None, action_only=False):
     return ords
 
 
+def _esc(s):
+    return html.escape(str(s or ""))
+
+
+def _highlight_article(no, body, cites):
+    """조례 조문 본문(정규화)에 인용 span을 <mark>로 감싼 HTML.
+
+    span은 normalize_text(조문본문) 기준 offset이므로 같은 정규화 텍스트에 적용한다.
+    겹치거나 범위를 벗어난 span은 건너뛴다(안전).
+    """
+    text = normalize_text(body)
+    spans = sorted((c for c in cites),
+                   key=lambda c: (c["span_start"] or 0, c["span_end"] or 0))
+    out, pos, n = [], 0, len(text)
+    for c in spans:
+        s, e = c["span_start"] or 0, c["span_end"] or 0
+        if s < pos or e > n or s >= e:      # 겹침/이상치 방어
+            continue
+        out.append(_esc(text[pos:s]))
+        cls = "cite-naked" if c.get("cite_naked") else "cite-law"
+        out.append(
+            f'<mark class="{cls}" data-oc="{_esc(no)}" data-law="{_esc(c["law_name"])}"'
+            f' data-clause="{_esc(c["clause_label"])}">{_esc(text[s:e])}</mark>')
+        pos = e
+    out.append(_esc(text[pos:]))
+    return "".join(out)
+
+
 def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
-    """조례 1건 상세: 메타(담당과·연락처) + 권고 조각(report.recommend_fragment)."""
+    """조례 1건 상세(통합 뷰용): 메타 + 본문(인용 하이라이트) + 권고 조각.
+
+    좌(본문 하이라이트)·우(권고)를 한 응답에. 라이브 API 0 — 본문은 ordinances.body_xml,
+    하이라이트는 citations(span)에서 서빙.
+    """
     conn = db.connect(db_path)
     o = conn.execute(
-        """SELECT mst, name, dept, phone, knd, promulg_date, enforce_date
+        """SELECT mst, name, dept, phone, knd, promulg_date, enforce_date, body_xml
            FROM ordinances WHERE mst = ?""", (str(mst),)).fetchone()
+    cits = conn.execute(
+        """SELECT article_no, law_name, clause_label, span_start, span_end,
+                  cite_naked, cite_type FROM citations WHERE mst = ?""",
+        (str(mst),)).fetchall()
     conn.close()
-    return {"meta": (dict(o) if o else {}),
+
+    by_art = {}
+    for c in cits:
+        by_art.setdefault(c["article_no"] or "", []).append(dict(c))
+
+    articles = []
+    if o and o["body_xml"]:
+        parsed = moleg.parse_ordinance_body(o["body_xml"])
+        if "error" not in parsed:
+            for a in parsed["articles"]:
+                if not a.get("body"):
+                    continue
+                no = a.get("no") or ""
+                ac = by_art.get(no, [])
+                articles.append({
+                    "no": no, "title": a.get("title", ""),
+                    "html": _highlight_article(no, a["body"], ac),
+                    "cites": len(ac),
+                })
+
+    meta = {k: o[k] for k in o.keys() if k != "body_xml"} if o else {}
+    return {"meta": meta, "articles": articles,
             "recommend": recommend_fragment(mst, db_path)}
 
 
@@ -206,7 +266,6 @@ h1{font-size:22px;margin:0 0 2px;}
 .controls .crumb{font-size:13px;color:#6b7280;}
 .controls .crumb a{color:#2563eb;cursor:pointer;text-decoration:none;}
 .layout{display:grid;grid-template-columns:1fr;gap:16px;}
-.layout.split{grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);}
 .panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13.5px;}
 th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #f1f3f5;}
@@ -219,7 +278,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;}
       margin-right:4px;color:#fff;}
 .p-mech{background:var(--mech);}.p-rev{background:var(--rev);}.p-chk{background:var(--chk);}
 .p-fmt{background:var(--fmt);}.p-cur{background:#9ca3af;}
-.detail{padding:0;max-height:78vh;overflow:auto;}
+.detail{padding:0;}
 .detail .dhd{padding:14px 16px;border-bottom:1px solid #eef0f3;}
 .detail .dhd h2{font-size:16px;margin:0 0 3px;}
 .detail .dhd .m{font-size:12px;color:#6b7280;}
@@ -228,6 +287,23 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;}
 .btn{font-size:12px;padding:4px 10px;border:1px solid #d1d5db;border-radius:7px;
      background:#fff;cursor:pointer;color:#374151;}
 .muted{color:#9ca3af;}
+/* 단계4 통합 상세: 좌 본문(하이라이트) | 우 권고 */
+.layout.detail-open #listPanel{display:none;}
+.layout.detail-open{grid-template-columns:1fr;}
+.dsplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+.dbody{padding:12px 16px;border-right:1px solid #eef0f3;max-height:76vh;overflow:auto;}
+.drec{padding:6px 14px;max-height:76vh;overflow:auto;}
+.dcolhd{font-size:12px;color:#6b7280;font-weight:600;margin:2px 0 8px;}
+.art{margin:0 0 14px;scroll-margin-top:8px;}
+.art .ahd{font-size:12.5px;font-weight:700;color:#374151;margin-bottom:3px;}
+.art .atext{font-size:13px;line-height:1.75;white-space:pre-wrap;color:#1f2937;
+            word-break:break-word;}
+.art.nocite .ahd{color:#9ca3af;}
+mark.cite-law{background:#dbeafe;color:#1e3a8a;border-radius:3px;padding:0 2px;cursor:pointer;}
+mark.cite-naked{background:#ede9fe;color:#5b21b6;border-radius:3px;padding:0 2px;cursor:pointer;}
+.artsec{scroll-margin-top:8px;}
+.flash{animation:flash 1.4s ease;}
+@keyframes flash{0%{background:#fde68a;}70%{background:#fef3c7;}100%{background:transparent;}}
 </style></head>
 <body><div class="wrap">
   <h1>자치법규 정비 — 총괄 대시보드</h1>
@@ -305,25 +381,51 @@ async function renderOrdList(){
     tr.onclick=()=>{selectOrd(tr.dataset.mst);});
 }
 
+function flash(el){if(!el)return;el.classList.remove("flash");void el.offsetWidth;
+  el.classList.add("flash");el.scrollIntoView({behavior:"smooth",block:"center"});}
+
 async function selectOrd(mst){
   curMst=mst;
   const d=await getJSON(`/api/ordinance/${encodeURIComponent(mst)}`);
-  const r=d.recommend||{}, m=d.meta||{};
+  const r=d.recommend||{}, m=d.meta||{}, arts=d.articles||[];
   if(r.css && !cssInjected){const s=document.createElement("style");
     s.textContent=r.css;document.head.appendChild(s);cssInjected=true;}
-  const dp=document.getElementById("detailPanel");
   const meta=`시행 ${fdate(m.enforce_date)} · 담당 ${esc(m.dept||"—")}`
     +(m.phone?` · ☎ ${esc(m.phone)}`:"");
-  const body=r.found?r.html:`<div class="empty">정비 항목이 없습니다(현행 유지).</div>`;
-  dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">✕ 닫기</button>
+  // 좌: 본문(조문별, 인용 하이라이트)
+  const left=arts.length?arts.map(a=>`<div class="art${a.cites?"":" nocite"}" data-oc="${esc(a.no)}">
+      <div class="ahd">${esc(a.no)}${a.title?" ("+esc(a.title)+")":""}${a.cites?` · 인용 ${a.cites}`:""}</div>
+      <div class="atext">${a.html}</div></div>`).join("")
+    :`<div class="empty">본문이 없습니다(body_xml 미적재 — 재배치 필요).</div>`;
+  // 우: 권고(report 조각)
+  const right=r.found?r.html:`<div class="empty">정비 항목이 없습니다(현행 유지).</div>`;
+  const dp=document.getElementById("detailPanel");
+  dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">← 목록</button>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
-     <div class="body">${body}</div>`;
+     <div class="dsplit">
+       <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">「」 인용</span> / <span style="color:#5b21b6">맨몸 인용</span></div>${left}</div>
+       <div class="drec"><div class="dcolhd">🔧 정비 권고</div>${right}</div>
+     </div>`;
   dp.style.display="block";
-  document.getElementById("layout").classList.add("split");
+  document.getElementById("layout").classList.add("detail-open");
+  wireFocus(dp);
 }
+function wireFocus(dp){
+  // 좌 하이라이트 클릭 → 우 권고에서 같은 조례 조문 섹션으로
+  dp.querySelectorAll(".dbody mark[data-oc]").forEach(mk=>mk.onclick=()=>{
+    const oc=mk.dataset.oc;
+    flash(dp.querySelector(`.drec .artsec[data-oc="${cssq(oc)}"]`));
+  });
+  // 우 권고 조문 헤더 클릭 → 좌 본문 해당 조문으로
+  dp.querySelectorAll(".drec .artsec[data-oc]").forEach(sec=>{
+    const hd=sec.querySelector(".arthd");if(hd){hd.style.cursor="pointer";
+      hd.onclick=()=>flash(dp.querySelector(`.dbody .art[data-oc="${cssq(sec.dataset.oc)}"]`));}
+  });
+}
+function cssq(s){return String(s).replace(/["\\]/g,"\\$&");}
 function closeDetail(){curMst="";
   document.getElementById("detailPanel").style.display="none";
-  document.getElementById("layout").classList.remove("split");}
+  document.getElementById("layout").classList.remove("detail-open");}
 
 function selectDept(dept){
   curDept=dept;
