@@ -91,8 +91,9 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                                     "body_xml": law_xml or ""}
         cur_arts = law_body_cache[law_id]
 
-        # 제명변경: 인용한 법령명이 현행 법령명과 다르면(개칭/통폐합) 조례 인용명 정정 대상.
-        # 법제처 API가 개칭된 법을 자동 반환해 그냥 넘어가던 것을 표면화.
+        # 제명변경: 인용 법령명 ≠ 현행 법령명(개칭/통폐합). 법령 자체가 바뀌었으면 조문번호·
+        # 내용이 전면 재편됐을 수 있어 조문별 비교는 오히려 오해를 부른다 → 조문별 판정은
+        # 건너뛰고 '인용 법령명 현행화 + 관련 조문 전면 검토' 1건으로 대체(조례 조문별).
         cur_law_name = law_name_cache.get(law_id, "")
         renamed_to = (cur_law_name if cur_law_name
                       and _name_key(cur_law_name) != _name_key(name) else "")
@@ -105,11 +106,14 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                     "law_id": law_id, "law_name": name, "clause_label": "",
                     "clause_detail": "", "category": "status", "severity": "review",
                     "change_type": "제명변경", "renamed_to": renamed_to,
-                    "detail": f"인용한 「{name}」이(가) 현행 법령명 「{renamed_to}」과(와) 다름 "
-                              f"— 제명변경(개칭) 또는 인용 오기 확인 후 법령명 정정",
+                    "detail": f"인용한 「{name}」이(가) 현행 「{renamed_to}」(으)로 제명변경"
+                              f"(개칭·통폐합)됨 — 법령 자체가 바뀌었으니 인용 법령명을 현행화하고 "
+                              f"관련 조문을 전면 검토. (조문번호·내용이 재편됐을 수 있어 개별 조문 "
+                              f"비교는 생략) [개칭 아니면 인용 오기 확인]",
                     "ord_enforce": ord_enforce, "old_enforce": "", "clause_enforce": "",
                     "evidence": "", "ord_clause": oa, "ord_seq": law_seq,
                     "cite_naked": 1 if naked_any else 0})
+            continue   # 이 법령은 조문별 판정 생략(전면 검토로 대체)
 
         old_arts = None
         old_enforce = ""
