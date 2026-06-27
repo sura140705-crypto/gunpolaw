@@ -45,7 +45,10 @@ gunpo_ordinances.db
 *.log
 
 # 3단계 권고서 산출물 (DB에서 재생성 — 추적 안 함)
-개정권고서.html
+개정권고서*.html
 
 # 파이프라인 점검 출력 (inspect_pipeline.py)
 inspect_*.txt
+
+# 동료 배포용 번들 (보낼 때만 생성)
+gunpolaw_test.zip

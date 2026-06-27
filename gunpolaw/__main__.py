@@ -22,7 +22,8 @@ def main(argv):
         print("  python -m gunpolaw <MST> [--deep]        조례 1건(--deep=2단계)")
         print("  python -m gunpolaw --report             저장 결과 집계")
         print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(3단계)")
-        print("  (환경변수 LAW_OC_KEY 에 법제처 OC 키 필요)")
+        print("  python -m gunpolaw --serve [포트]       총괄 대시보드 서빙(읽기전용, 기본 8765)")
+        print("  (배치/권고는 LAW_OC_KEY 필요 · --serve 는 DB만 읽으므로 키 불요)")
         return 1
 
     deep = "--deep" in argv
@@ -40,6 +41,12 @@ def main(argv):
         from .batch import report
         report()
         return 0
+
+    if argv[0] == "--serve":
+        from .serve import serve
+        nums = [a for a in argv[1:] if a.isdigit()]
+        port = int(nums[0]) if nums else 8765
+        return serve(port=port)
 
     if argv[0] == "--recommend":
         from .report import write_report, GRADE_META

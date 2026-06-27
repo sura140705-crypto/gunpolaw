@@ -96,6 +96,18 @@ def grade_of(severity, change_type=""):
     return "check"
 
 
+def finding_grade(severity, change_type="", cite_naked=0):
+    """finding 1건의 **최종 등급 키**(권고서·대시보드 공용 단일 출처).
+
+    grade_of 위에 '서식 정비' 승격 규칙을 더한다: 내용은 현행이나 「」 없이
+    맨몸 인용된 결함은 current가 아니라 format(서식 정비)으로 끌어올린다.
+    """
+    g = grade_of(severity, change_type)
+    if g == "current" and (cite_naked or 0):
+        return "format"
+    return g
+
+
 def _get(f, key):
     """dict / sqlite3.Row 양쪽에서 안전하게 값 읽기 (없으면 빈 문자열)."""
     try:
@@ -183,10 +195,8 @@ def build_model(db_path=db.DEFAULT_DB, mst=None):
     by_mst = {}
     summary = {k: 0 for k in GRADE_KEYS}
     for r in rows:
-        g = grade_of(r["severity"], r["change_type"])
-        # 내용 현행 + 맨몸 인용 → '서식 정비' 항목으로 분리(현행유지에서 끌어올림)
-        if g == "current" and (r["cite_naked"] or 0):
-            g = "format"
+        # 내용 현행 + 맨몸 인용은 finding_grade가 '서식 정비'로 끌어올린다(단일 출처)
+        g = finding_grade(r["severity"], r["change_type"], r["cite_naked"])
         summary[g] += 1
         o = by_mst.setdefault(r["mst"], {
             "mst": r["mst"],
