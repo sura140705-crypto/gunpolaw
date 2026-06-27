@@ -165,12 +165,14 @@ def action_text(f):
 
 
 # ---------- DB → 보고 모델 ----------
-def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None):
+def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=False):
     """findings + ordinances → 권고서 렌더 모델.
 
     {summary:{...}, ordinances:[{name, enforce_date, grades:{}, items:[...]}, ...]}
     조례는 정비 우선순위(기계적→실질→확인 순 가중)로 정렬.
     mst 지정 시 해당 조례 1건만(UI 권고 뷰용). dept 지정 시 그 담당과 조례만(과별 리포트).
+    include_current=True면 현행(변경 없음) 인용도 항목으로 포함 — '검토했으나 변경 없음'을
+    명시(대시보드 통합 뷰). 독립 권고서는 False(정비 대상만).
     """
     conn = db.connect(db_path)
     # 구 DB 호환: 없는 컬럼은 빈 값으로 대체
@@ -241,6 +243,22 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None):
                 "clause_enforce": r["clause_enforce"] or "",
                 "cite_naked": r["cite_naked"] or 0,
             })
+        elif include_current:
+            # 변경 없음(현행) 인용도 '검토 완료'로 표기 — 누락이 아니라 검토 결과임을 명시
+            o["items"].append({
+                "grade": "current",
+                "law_name": r["law_name"] or "",
+                "clause_label": r["clause_label"] or "",
+                "change_type": "동일",
+                "ord_clause": r["ord_clause"] or "",
+                "ord_seq": r["ord_seq"] if r["ord_seq"] is not None else 999999,
+                "action": "검토 완료 — 인용 조항이 조례 시행 이후 개정되지 않아 변경 없음.",
+                "evidence": "",
+                "ord_enforce": r["ord_enforce"] or o["enforce_date"],
+                "old_enforce": r["old_enforce"] or "",
+                "clause_enforce": r["clause_enforce"] or "",
+                "cite_naked": r["cite_naked"] or 0,
+            })
 
     ordinances = [o for o in by_mst.values() if o["items"]]
     for o in ordinances:
@@ -297,6 +315,9 @@ h1 { font-size:24px; margin:0 0 4px; }
 .t-mech { background:#dbeafe; color:#1e40af;} .t-rev { background:#fef3c7; color:#92400e;}
 .t-chk { background:#f3f4f6; color:#374151;}
 .t-naked { background:#ede9fe; color:#5b21b6;}
+.t-cur { background:#dcfce7; color:#166534;}
+details.citem.cur > summary { opacity:.72; }
+details.citem.cur .law { font-weight:500; }
 /* 접이식 인용 항목(대시보드 우측) — 기본 접힘, 좌측 인용 클릭 시 펼침 */
 details.citem { border-top:1px solid #f3f4f6; padding:0; }
 details.citem > summary { list-style:none; cursor:pointer; padding:9px 10px 9px 8px;
@@ -421,10 +442,10 @@ def _item_block(it, collapsible=False):
     펼치면 행동지시·기준일·diff. 좌측 본문 인용 클릭 시 (law,clause)로 이 항목을 편다.
     """
     tag_cls = {"mechanical": "t-mech", "review": "t-rev", "check": "t-chk",
-               "format": "t-naked"}[it["grade"]]
-    # 서식 정비 항목은 변경유형(동일)이 아니라 '서식'으로 표기
-    tag = "서식" if it["grade"] == "format" else (
-        it["change_type"] or GRADE_META[it["grade"]]["label"])
+               "format": "t-naked", "current": "t-cur"}[it["grade"]]
+    # 서식=서식, 현행=변경 없음, 그 외=변경유형
+    tag = {"format": "서식", "current": "✅ 변경 없음"}.get(
+        it["grade"], it["change_type"] or GRADE_META[it["grade"]]["label"])
     law = f'「{_esc(it["law_name"])}」 {_esc(it["clause_label"])}'.rstrip()
     # 내용변경+맨몸은 별도 「」누락 배지, 서식정비(format) 항목은 태그 자체가 서식이라 생략
     naked = ('<span class="tag t-naked">「」누락</span>'
@@ -434,7 +455,8 @@ def _item_block(it, collapsible=False):
     body = (f'<div class="act">{_esc(it["action"])}</div>'
             f'{_basis_line(it)}{_evidence_block(it)}')
     if collapsible:
-        return (f'<details class="item citem" data-law="{_esc(it["law_name"])}"'
+        cls = "item citem cur" if it["grade"] == "current" else "item citem"
+        return (f'<details class="{cls}" data-law="{_esc(it["law_name"])}"'
                 f' data-clause="{_esc(it["clause_label"])}">'
                 f'<summary class="iline">{head}</summary>{body}</details>')
     return (f'<div class="item"><div class="iline">{head}</div>{body}</div>')
@@ -517,7 +539,7 @@ def recommend_fragment(mst, db_path=db.DEFAULT_DB, collapsible=False):
     collapsible=True면 인용 항목을 <details>로 접어(대시보드 우측 패널) 좌측 본문 인용과 연동.
     findings 가 모두 current(현행)면 found=False, html='' (정비 불필요).
     """
-    model = build_model(db_path, mst=mst)
+    model = build_model(db_path, mst=mst, include_current=collapsible)
     ords = model["ordinances"]
     if not ords:
         return {"found": False, "mst": str(mst), "name": "", "grades": {},
