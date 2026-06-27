@@ -85,6 +85,26 @@ def test_ord_article_tagging():
     assert ca["제14조"] == ["제7조"], ca
 
 
+def test_alias_def_with_broken_quote_and_glued_spacing():
+    """여는 따옴표가 ··(OCR)로 깨져도 약칭 등록 + 뒤 조항 부착, 띄어쓰기 붙은 약칭도 해소."""
+    text = ('「지적재조사에 관한 특별법」(이하··법"이라 한다) 제30조제1항에 따라. '
+            '경우에는법 제13조에 의한다. 위원회는법 제16조 및 제17조에 따라.')
+    g = group_by_law(extract_citations(text))
+    labels = g["지적재조사에 관한 특별법"]["clause_labels"]
+    assert "제30조" in labels, labels       # 깨진 약칭정의 뒤 조항 복구
+    assert "제13조" in labels and "제16조" in labels and "제17조" in labels, labels  # 띄어쓰기 약칭
+    # '경우에는법' 같은 가짜 법명이 생기지 않아야
+    assert "경우에는법" not in g and "위원회는법" not in g, list(g)
+
+
+def test_real_law_ending_in_law_not_split():
+    """약칭 '법'이 등록돼도 실제 법명(어간+법)은 쪼개지 않는다(수도법 등)."""
+    text = '「수도법」(이하 "법"이라 한다) 제2조. 상수도법 제5조에 따라.'
+    g = group_by_law(extract_citations(text))
+    # '상수도법'은 조사 끝('도')이 아니므로 약칭 redirect 안 됨 → 별도 법명으로
+    assert "상수도법" in g, list(g)
+
+
 def test_occurrences_split_by_article_and_subunit():
     """같은 조를 다른 호로 다른 조례 조문이 인용 → occurrences가 (조례조문×호)로 분리.
 

@@ -27,10 +27,11 @@ CLAUSE_INNER = (
 )
 
 # 「법령명」 + (선택)inline약칭정의 + (선택)조항
-#   inline 정의: (이하 "○○"이라 한다)  ← legacy의 깨진 '$' 를 정상 괄호로 복원
+#   inline 정의: (이하 "○○"이라 한다). 여는 따옴표가 OCR로 ·· 등으로 깨진 자료가 있어
+#   여는/닫는 구분자를 따옴표·가운뎃점·공백 모두 허용(못 잡으면 뒤따르는 조항까지 유실됨).
 LAW_CITE_RE = re.compile(
     r'「([^」\n]{2,80})」'
-    r'(?:\s*\(\s*이하\s*["“]([^"”]+)["”]\s*(?:이?라\s*한다)?\s*\))?'
+    r'(?:\s*\(\s*이하\s*[\s"“·]*([가-힣]{1,20}?)\s*(?:["”·]\s*)?이?라\s*한다\s*\))?'
     r'(?:\s*(' + CLAUSE_INNER + r'))?'
 )
 
@@ -52,6 +53,9 @@ NAKED_LAW_RE = re.compile(
 NAKED_STOP = {"같은법", "이법", "그법", "본법", "해당법", "동법", "관계법", "관련법",
               "상위법", "현행법", "신법", "구법", "위반법", "준용법", "적용법",
               "특별법", "기본법", "일반법"}
+# 약칭(법 등) 직전이 이 조사로 끝나면 '단어+약칭'(띄어쓰기 오류)로 본다. 실제 법명
+# 어간 끝(건축'법'·민'법'·수'도'법…)과 겹치지 않는 보수적 집합만(도/로/의 등 제외).
+_JOSA_BEFORE_ALIAS = set("는은를을에")
 
 # 분류
 GENERIC_NAMES = {"법령", "다른 법령", "법령이나 조례",
@@ -181,6 +185,21 @@ def _extract_segments(segments):
                 base = m.group(1).strip()
                 if base.replace(" ", "") in NAKED_STOP:
                     seq -= 1                            # 채택 안 함 → 순서 보존
+                    continue
+                # 띄어쓰기 오류로 약칭이 앞 단어에 붙은 경우("경우에는법"="경우에는"+약칭"법")
+                # — 등록된 약칭으로 redirect하고 서식(꺽쇠·띄어쓰기) 정비 대상으로(naked).
+                redirect = None
+                for al, full in doc_aliases.items():
+                    if (al and base.endswith(al) and len(base) > len(al)
+                            and base[-len(al) - 1] in _JOSA_BEFORE_ALIAS):
+                        redirect = full
+                        break
+                if redirect:
+                    clause = (m.group(3) or "").strip()
+                    if classify(redirect) in ("법령", "자치법규"):
+                        last_law = redirect
+                    refs.append(_ref(redirect, clause, "naked", no, seq,
+                                     span=m.span(), raw=m.group(0)))
                     continue
                 name = (base + (m.group(2) or "")).strip()
                 clause = (m.group(3) or "").strip()
