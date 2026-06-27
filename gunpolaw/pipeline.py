@@ -33,7 +33,8 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     version_cache = version_cache if version_cache is not None else {}
     old_cache = old_cache if old_cache is not None else {}
     findings = []
-    fetched_laws = {}   # 이번 호출에서 새로 받은 법령(캐시 미스) — 배치가 DB 영속
+    fetched_laws = {}     # 이번 호출에서 새로 받은 법령(캐시 미스) — 배치가 DB 영속
+    fetched_versions = {} # 새로 받은 당시 시행본 {버전MST: {law_id, enforce_date, body_xml}}
 
     for name, g in grouped.items():
         if g["type"] != "법령":          # 자치법규간 참조는 제외
@@ -72,7 +73,11 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
             if vsel:
                 old_enforce = vsel["enforce_date"]      # 당시 시행본 법령 일자
                 if vsel["mst"] not in old_cache:
-                    old_cache[vsel["mst"]] = history.body_articles_by_mst(vsel["mst"])
+                    arts, vxml = history.body_with_xml_by_mst(vsel["mst"])
+                    old_cache[vsel["mst"]] = arts
+                    # 원본 XML 영속 → 다음 파서 변경 시 deep 근거도 재수집 없이 재파싱
+                    fetched_versions[vsel["mst"]] = {
+                        "law_id": law_id, "enforce_date": old_enforce, "body_xml": vxml}
                 old_arts = old_cache[vsel["mst"]]
 
         clause_articles = g.get("clause_articles", {})
@@ -93,6 +98,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         "body_xml": body.get("xml", ""),
         "findings": findings,
         "fetched_laws": fetched_laws,
+        "fetched_versions": fetched_versions,
         "citations": refs,
         "summary": checks.summarize(findings),
     }

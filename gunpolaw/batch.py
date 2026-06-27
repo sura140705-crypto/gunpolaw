@@ -89,6 +89,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
     conn.execute("DELETE FROM findings")
     conn.execute("DELETE FROM laws")
     conn.execute("DELETE FROM law_articles")
+    conn.execute("DELETE FROM law_versions")
     conn.execute("DELETE FROM citations")
     conn.commit()
 
@@ -138,6 +139,13 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
                     (law_id, label, jo, ga, a.get("title", ""), a.get("enforce_date", ""),
                      a.get("moved_from", ""), a.get("moved_to", ""),
                      1 if a.get("changed") else 0, a.get("content", "")))
+        # 당시 시행본(deep) 원본 XML 영속 — 다음 파서 변경 시 deep 근거도 오프라인 재파싱
+        for vmst, v in res.get("fetched_versions", {}).items():
+            conn.execute(
+                """INSERT OR REPLACE INTO law_versions
+                   (law_id, version_mst, enforce_date, body_xml, fetched_at)
+                   VALUES (?,?,?,?,?)""",
+                (v["law_id"], vmst, v.get("enforce_date", ""), v.get("body_xml", ""), _now()))
         # 인용 위치(span)·맨몸 플래그를 영속 — 하이라이트를 DB에서 서빙(라이브 추출 제거 토대)
         for r in res.get("citations", []):
             if r["type"] == "기타":           # 일반어(법령/다른 법령 등) 제외

@@ -41,7 +41,18 @@ def as_of(versions, ord_date):
     return max(cand, key=lambda v: v["enforce_date"]) if cand else None
 
 
+def body_xml_by_mst(mst):
+    """특정 시행본(MST)의 원본 본문 XML (target=law&MST)."""
+    return moleg.call("lawService.do",
+                      {"target": "law", "MST": str(mst), "type": "XML"}) or ""
+
+
 def body_articles_by_mst(mst):
     """특정 시행본(MST)의 조문 dict (target=law&MST)."""
-    return moleg.parse_law_articles(
-        moleg.call("lawService.do", {"target": "law", "MST": str(mst), "type": "XML"}))
+    return moleg.parse_law_articles(body_xml_by_mst(mst))
+
+
+def body_with_xml_by_mst(mst):
+    """특정 시행본(MST)의 (조문 dict, 원본 XML). XML은 law_versions 영속용."""
+    xml = body_xml_by_mst(mst)
+    return moleg.parse_law_articles(xml), xml

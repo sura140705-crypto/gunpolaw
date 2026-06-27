@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS law_articles (
     PRIMARY KEY (law_id, label)
 );
 
+-- 상위법령 당시 시행본 : deep 비교용 원본 XML 영속(재수집 없이 오프라인 재파싱)
+CREATE TABLE IF NOT EXISTS law_versions (
+    law_id       TEXT,
+    version_mst  TEXT,               -- 그 시점 시행본 법령일련번호(MST)
+    enforce_date TEXT,               -- 당시 시행본 시행일자
+    body_xml     TEXT,               -- 당시 본문 XML(파싱은 읽을 때)
+    fetched_at   TEXT,
+    PRIMARY KEY (law_id, version_mst)
+);
+
 -- 조례 ↔ 법령 공식 연계 : lnkOrg(법령ID 직접)
 CREATE TABLE IF NOT EXISTS ord_law_links (
     mst       TEXT,
