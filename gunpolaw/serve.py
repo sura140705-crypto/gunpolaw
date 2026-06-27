@@ -126,7 +126,13 @@ def _highlight_article(no, body, cites):
         if s < pos or e > n or s >= e:      # 겹침/이상치 방어
             continue
         out.append(_esc(text[pos:s]))
-        cls = "cite-naked" if c.get("cite_naked") else "cite-law"
+        # 타 조례(자치법규)는 상위법령 정합성 검토 대상이 아니라 회색으로 구분(우측 검토에 없음)
+        if c.get("cite_type") == "자치법규":
+            cls = "cite-local"
+        elif c.get("cite_naked"):
+            cls = "cite-naked"
+        else:
+            cls = "cite-law"
         out.append(
             f'<mark class="{cls}" data-oc="{_esc(no)}" data-law="{_esc(c["law_name"])}"'
             f' data-clause="{_esc(c["clause_label"])}">{_esc(text[s:e])}</mark>')
@@ -333,6 +339,8 @@ mark.cite-law{background:#dbeafe;color:#1e3a8a;border-radius:3px;padding:0 2px;c
 mark.cite-law:hover{background:#bfdbfe;}
 mark.cite-naked{background:#ede9fe;color:#5b21b6;border-radius:3px;padding:0 2px;cursor:pointer;}
 mark.cite-naked:hover{background:#ddd6fe;}
+mark.cite-local{background:#f1f5f9;color:#64748b;border-radius:3px;padding:0 2px;
+                border-bottom:1px dotted #94a3b8;}
 mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .artsec{scroll-margin-top:8px;}
 .flash{animation:flash 1.4s ease;}
@@ -439,7 +447,7 @@ async function selectOrd(mst){
   dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">← 목록</button>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="dsplit">
-       <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">「」 인용</span> / <span style="color:#5b21b6">맨몸 인용</span></div>${left}</div>
+       <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">상위법령 「」</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례(검토 대상 외)</span></div>${left}</div>
        <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div>${right}</div>
      </div>`;
   dp.style.display="block";

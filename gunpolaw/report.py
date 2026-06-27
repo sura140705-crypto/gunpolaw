@@ -340,13 +340,6 @@ details.citem.focus { box-shadow:inset 3px 0 0 #2563eb; }
            border-left:3px solid #94a3b8; border-radius:6px; padding:7px 10px; margin:4px 0 8px;
            white-space:pre-wrap; line-height:1.6; }
 .ordtext b { color:#0f172a; margin-right:4px; }
-.dskip { font-size:11.5px; color:#9ca3af; text-align:center; padding:3px 0; font-style:italic; }
-details.dfull { margin-top:6px; }
-details.dfull > summary { font-size:12px; color:#2563eb; cursor:pointer; padding:3px 0;
-                         list-style:none; }
-details.dfull > summary::-webkit-details-marker { display:none; }
-details.dfull > summary::before { content:"▸ "; }
-details.dfull[open] > summary::before { content:"▾ "; }
 .item .ev { font-size:12px; color:#6b7280; white-space:pre-wrap;
             background:#f9fafb; border-radius:6px; padding:7px 9px; margin-top:6px; }
 .diff { border:1px solid #eef0f3; border-radius:6px; overflow:hidden; margin-top:6px; }
@@ -399,45 +392,15 @@ def _drow(o_html, n_html):
             f'<span class="dtext">{n_html}</span></div>')
 
 
-def _line_diff_blocks(old, new):
-    """항·호·목(줄 단위) diff. 바뀐 블록만 [(당시HTML, 현행HTML)] + 동일하게 생략된 줄수.
-
-    조문은 '조내용\\n항\\n호\\n목' 형태로 줄이 나뉘어 있어, 동일한 항·호·목은 통째로
-    건너뛰고 바뀐 부분만 토큰 하이라이트로 보여준다(긴 정의 조문의 가독성).
-    """
-    o_lines, n_lines = (old or "").split("\n"), (new or "").split("\n")
-    sm = difflib.SequenceMatcher(None, o_lines, n_lines, autojunk=False)
-    blocks, skipped = [], 0
-    for op, i1, i2, j1, j2 in sm.get_opcodes():
-        if op == "equal":
-            skipped += (i2 - i1)
-            continue
-        oh, nh = _diff_marks("\n".join(o_lines[i1:i2]), "\n".join(n_lines[j1:j2]))
-        blocks.append((oh, nh))
-    return blocks, skipped
-
-
 def _evidence_block(it):
-    """내용변경이면 당시/현행 diff. 기본은 '바뀐 항·호·목만'(간략), 펼치면 전체 조문.
-
-    동일한 항·목은 생략(접힘). 변경 없는 줄이 있으면 [전체 조문 비교 펼치기]로 풀버전.
-    """
+    """내용변경이면 당시/현행 diff(전체 표시). 인용 단위(호/목)로 좁혀 오므로 생략 없이
+    바뀐 토큰만 하이라이트해 그대로 보여준다."""
     old, new = _split_evidence(it.get("evidence", ""))
     if old is None:
         ev = it.get("evidence", "")
         return f'<div class="ev">{_esc(ev)}</div>' if ev else ""
-
-    blocks, skipped = _line_diff_blocks(old, new)
-    if not blocks:                       # 줄은 같고 토큰만 다름 → 전체 토큰 diff로 폴백
-        blocks = [_diff_marks(old, new)]
-    compact = "".join(_drow(oh, nh) for oh, nh in blocks)
-    if not skipped:                      # 전부 바뀌었으면 간략=전체, 펼치기 불필요
-        return f'<div class="diff">{compact}</div>'
-    note = f'<div class="dskip">⋯ 동일한 항·호·목 {skipped}개 생략 ⋯</div>'
-    fo, fn = _diff_marks(old, new)        # 전체 조문(펼치기)
-    full = (f'<details class="dfull"><summary>전체 조문 비교 펼치기</summary>'
-            f'{_drow(fo, fn)}</details>')
-    return f'<div class="diff">{compact}{note}{full}</div>'
+    o_html, n_html = _diff_marks(old, new)
+    return f'<div class="diff">{_drow(o_html, n_html)}</div>'
 
 
 def _item_block(it, collapsible=False):

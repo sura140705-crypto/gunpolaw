@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gunpolaw.report import (
     grade_of, action_text, build_model, render_html, model_to_csv,
-    _split_evidence, _diff_marks, _fmtdate, _line_diff_blocks, _evidence_block,
+    _split_evidence, _diff_marks, _fmtdate, _evidence_block,
     _ord_block, GRADE_KEYS)
 
 
@@ -123,24 +123,13 @@ def test_render_html_smoke():
     assert "<x>" not in h            # 원본 꺾쇠는 새지 않음
 
 
-def test_line_diff_blocks_skips_identical():
-    """동일한 줄(항·호·목)은 생략하고 바뀐 줄만 블록으로."""
-    blocks, skipped = _line_diff_blocks("머리글\n가호 동일\n나호 옛", "머리글\n가호 동일\n나호 새")
-    assert skipped == 2, skipped          # 머리글·가호 동일
-    assert len(blocks) == 1               # 나호만 바뀜
-    assert "<mark" in blocks[0][1]        # 바뀐 줄 토큰 하이라이트
-
-
-def test_evidence_compact_and_expand():
-    """기본은 바뀐 부분만(+동일 생략 표시), 동일 줄 있으면 전체 펼치기 제공."""
+def test_evidence_shows_full_diff_no_collapse():
+    """생략 로직 제거 — 동일한 줄도 그대로 보여주고 바뀐 토큰만 하이라이트."""
     it = {"evidence": "[당시] 머리글\n가호 동일\n나호 옛내용\n[현행] 머리글\n가호 동일\n나호 새내용"}
     h = _evidence_block(it)
-    assert "동일한 항·호·목 2개 생략" in h, h
-    assert "전체 조문 비교 펼치기" in h
-    assert "새내용" in h
-    # 전부 바뀌면(동일 줄 없음) 펼치기 버튼 없이 간략=전체
-    h2 = _evidence_block({"evidence": "[당시] 가\n[현행] 나"})
-    assert "펼치기" not in h2 and "drow" in h2
+    assert "생략" not in h and "펼치기" not in h, h     # 접기/펼치기 없음
+    assert "머리글" in h and "가호 동일" in h            # 동일한 항·호도 표시
+    assert '<mark class="i">새내용</mark>' in h          # 바뀐 부분 하이라이트
 
 
 def test_ord_block_shows_ordinance_text():
