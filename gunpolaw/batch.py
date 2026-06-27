@@ -53,13 +53,14 @@ def persist_result(conn, mst, res, org="", update_ordinance=True):
         conn.execute(
             """INSERT INTO findings(mst, law_id, law_name, clause_label, clause_detail,
                    category, severity, change_type, ord_clause, ord_seq, detail, ord_enforce,
-                   old_enforce, clause_enforce, evidence, cite_naked, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   old_enforce, clause_enforce, evidence, cite_naked, cite_spacing, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (mst, f["law_id"], f["law_name"], f["clause_label"], f.get("clause_detail", ""),
              f["category"], f["severity"], f.get("change_type", ""), f.get("ord_clause", ""),
              f.get("ord_seq", 0), f["detail"], f["ord_enforce"],
              f.get("old_enforce", ""), f["clause_enforce"],
-             (f["evidence"] or "")[:8000], f.get("cite_naked", 0), _now()))
+             (f["evidence"] or "")[:8000], f.get("cite_naked", 0),
+             f.get("cite_spacing", 0), _now()))
     # 새로 받은(또는 DB에서 재파싱한) 법령 현행 본문·조문 영속
     for law_id, lw in res.get("fetched_laws", {}).items():
         conn.execute(

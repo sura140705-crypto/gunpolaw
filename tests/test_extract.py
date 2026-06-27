@@ -108,6 +108,22 @@ def test_naked_flag_only_for_bare_full_name():
     assert ("제5조", True) in occ2      # 맨몸 전체 법령명 → 꺽쇠 권고
 
 
+def test_glued_alias_spacing_flag_and_trimmed_span():
+    """붙여쓴 약칭은 alias_spacing + occurrence.spacing=True, 하이라이트는 약칭부터('법 …')."""
+    from gunpolaw.extract import normalize_text
+    text = '「지적재조사에 관한 특별법」(이하 "법"이라 한다) 제5조. 위원회는법 제16조에 따라.'
+    refs = extract_citations(text)
+    sp = [r for r in refs if r["alias_source"] == "alias_spacing"]
+    assert sp, [r["alias_source"] for r in refs]
+    r = sp[0]
+    assert r["raw"].startswith("법 제16조"), r["raw"]          # 앞말 제거
+    s, e = r["span"]
+    assert normalize_text(text)[s:e].startswith("법 제16조")    # span도 약칭부터
+    g = group_by_law(refs)
+    occ = g["지적재조사에 관한 특별법"]["occurrences"]
+    assert any(o.get("spacing") for o in occ) and not any(o.get("naked") for o in occ)
+
+
 def test_real_law_ending_in_law_not_split():
     """약칭 '법'이 등록돼도 실제 법명(어간+법)은 쪼개지 않는다(수도법 등)."""
     text = '「수도법」(이하 "법"이라 한다) 제2조. 상수도법 제5조에 따라.'

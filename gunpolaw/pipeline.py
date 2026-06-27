@@ -145,6 +145,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
             f["ord_seq"] = occ["ord_seq"]
             # 꺽쇠 권고는 '전체 법령명을 꺽쇠 없이' 쓴 그 인용에만(약칭 '법'·'같은 법'은 정상)
             f["cite_naked"] = 1 if occ.get("naked") else 0
+            f["cite_spacing"] = 1 if occ.get("spacing") else 0   # 약칭 붙여쓰기 정비
             findings.append(f)
 
     # 인용 refs에 해소된 law_id를 새겨 영속 — 조문 없는 법명-only 인용까지 매핑이 남아

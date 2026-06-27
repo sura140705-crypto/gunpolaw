@@ -99,14 +99,14 @@ def grade_of(severity, change_type=""):
     return "check"
 
 
-def finding_grade(severity, change_type="", cite_naked=0):
+def finding_grade(severity, change_type="", cite_naked=0, cite_spacing=0):
     """finding 1건의 **최종 등급 키**(권고서·대시보드 공용 단일 출처).
 
-    grade_of 위에 '서식 정비' 승격 규칙을 더한다: 내용은 현행이나 「」 없이
-    맨몸 인용된 결함은 current가 아니라 format(서식 정비)으로 끌어올린다.
+    grade_of 위에 '서식 정비' 승격 규칙을 더한다: 내용은 현행이나 「」 없이 맨몸 인용됐거나
+    (cite_naked) 약칭이 붙여쓰기된(cite_spacing) 서식 결함은 current가 아니라 format으로.
     """
     g = grade_of(severity, change_type)
-    if g == "current" and (cite_naked or 0):
+    if g == "current" and (cite_naked or cite_spacing):
         return "format"
     return g
 
@@ -136,14 +136,19 @@ def action_text(f):
     # 제명변경: 인용한 법령명이 현행과 다름 → 인용 법령명 정정(detail에 신·구 명칭 포함)
     if ct == "제명변경":   # detail에 신·구 명칭이 담겨 있음(인용 법령명 정정 안내)
         return _get(f, "detail") or f"「{law}」 법령명 불일치 — 인용 법령명 정정"
-    # 내용은 현행이지만 「」 없이 인용된 서식 결함 → 서식 정정만 안내(내용 변경 없음)
-    if _get(f, "cite_naked") and _get(f, "severity") == "current":
+    naked = _get(f, "cite_naked")
+    spacing = _get(f, "cite_spacing")
+    # 내용은 현행이지만 서식(꺽쇠/띄어쓰기) 결함만 → 서식 정정만 안내(내용 변경 없음)
+    if (naked or spacing) and _get(f, "severity") == "current":
         cl = f" {clause}" if clause else ""
-        return (f"「{law}」{cl} 인용을 꺽쇠(「」) 서식으로 정정 ({loc}) "
-                f"— 내용 변경은 없음, 서식만 정비")
-    # 내용 변경이 동반된 맨몸 인용은 내용 정비와 함께 인용 서식도 바로잡도록 덧붙임
-    naked_note = (f' (덧붙여 「{law}」처럼 꺽쇠 서식으로 정정)'
-                  if _get(f, "cite_naked") else "")
+        if naked:
+            return (f"「{law}」{cl} 인용을 꺽쇠(「」) 서식으로 정정 ({loc}) "
+                    f"— 내용 변경은 없음, 서식만 정비")
+        return (f"「{law}」 약칭을 앞말과 띄어 써 정정 ({loc}) "
+                f"— 내용 변경은 없음, 띄어쓰기만 정비")
+    # 내용 변경이 동반된 서식 결함은 내용 정비와 함께 서식도 바로잡도록 덧붙임
+    extra = (f' (덧붙여 「{law}」처럼 꺽쇠 서식으로 정정)' if naked else "")
+    extra += " (덧붙여 약칭 앞 띄어쓰기 정정)" if spacing else ""
 
     def _base():
         if g == "mechanical":
@@ -164,7 +169,7 @@ def action_text(f):
             return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
         return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
 
-    return _base() + naked_note
+    return _base() + extra
 
 
 # ---------- DB → 보고 모델 ----------
@@ -196,7 +201,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                   f.severity, f.change_type,
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
                   f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
-                  {sel('cite_naked', '0')},
+                  {sel('cite_naked', '0')}, {sel('cite_spacing', '0')},
                   o.name AS ord_name, o.enforce_date AS ord_enforce_date
            FROM findings f LEFT JOIN ordinances o ON o.mst = f.mst
            {where}
@@ -220,8 +225,8 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
     by_mst = {}
     summary = {k: 0 for k in GRADE_KEYS}
     for r in rows:
-        # 내용 현행 + 맨몸 인용은 finding_grade가 '서식 정비'로 끌어올린다(단일 출처)
-        g = finding_grade(r["severity"], r["change_type"], r["cite_naked"])
+        # 내용 현행 + 서식 결함(맨몸/띄어쓰기)은 finding_grade가 '서식 정비'로(단일 출처)
+        g = finding_grade(r["severity"], r["change_type"], r["cite_naked"], r["cite_spacing"])
         summary[g] += 1
         o = by_mst.setdefault(r["mst"], {
             "mst": r["mst"],
@@ -247,6 +252,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                 "old_enforce": r["old_enforce"] or "",
                 "clause_enforce": r["clause_enforce"] or "",
                 "cite_naked": r["cite_naked"] or 0,
+                "cite_spacing": r["cite_spacing"] or 0,
             })
         elif include_current:
             # 변경 없음(현행) 인용도 '검토 완료'로 표기 — 누락이 아니라 검토 결과임을 명시
@@ -264,6 +270,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                 "old_enforce": r["old_enforce"] or "",
                 "clause_enforce": r["clause_enforce"] or "",
                 "cite_naked": r["cite_naked"] or 0,
+                "cite_spacing": r["cite_spacing"] or 0,
             })
 
     ordinances = [o for o in by_mst.values() if o["items"]]
@@ -322,6 +329,7 @@ h1 { font-size:24px; margin:0 0 4px; }
 .t-chk { background:#f3f4f6; color:#374151;}
 .t-naked { background:#ede9fe; color:#5b21b6;}
 .t-cur { background:#dcfce7; color:#166534;}
+.t-space { background:#fef9c3; color:#854d0e;}
 details.citem.cur > summary { opacity:.72; }
 details.citem.cur .law { font-weight:500; }
 /* 접이식 인용 항목(대시보드 우측) — 기본 접힘, 좌측 인용 클릭 시 펼침 */
@@ -418,10 +426,14 @@ def _item_block(it, collapsible=False):
     # 인용된 호·목까지 표기(제3조제5호나목) — 좁혀 판정한 단위를 그대로 보여줌
     clause_full = (it["clause_label"] or "") + (it.get("clause_detail") or "")
     law = f'「{_esc(it["law_name"])}」 {_esc(clause_full)}'.rstrip()
-    # 내용변경+맨몸은 별도 「」누락 배지, 서식정비(format) 항목은 태그 자체가 서식이라 생략
-    naked = ('<span class="tag t-naked">「」누락</span>'
-             if it.get("cite_naked") and it["grade"] != "format" else "")
-    head = (f'<span class="tag {tag_cls}">{_esc(tag)}</span>{naked}'
+    # 내용변경 항목엔 서식 결함 배지 병기(format 등급은 태그 자체가 '서식'이라 생략)
+    badges = ""
+    if it["grade"] != "format":
+        if it.get("cite_naked"):
+            badges += '<span class="tag t-naked">「」누락</span>'
+        if it.get("cite_spacing"):
+            badges += '<span class="tag t-space">띄어쓰기</span>'
+    head = (f'<span class="tag {tag_cls}">{_esc(tag)}</span>{badges}'
             f'<span class="law">{law}</span>')
     body = (f'<div class="act">{_esc(it["action"])}</div>'
             f'{_basis_line(it)}{_evidence_block(it)}')

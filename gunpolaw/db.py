@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS findings (
     clause_enforce  TEXT,            -- 현행 조문 시행/개정일(판단 기준일)
     evidence        TEXT,
     cite_naked      INTEGER,         -- 1=「」 없이 맨몸으로 인용된 법령(서식 정비 병행 대상)
+    cite_spacing    INTEGER,         -- 1=약칭이 앞말에 붙은 띄어쓰기 오류(예: 위원회는법)
     created_at      TEXT
 );
 
@@ -134,7 +135,8 @@ def init_db(db_path=DEFAULT_DB):
     fcols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
     for name, decl in (("change_type", "TEXT"), ("ord_clause", "TEXT"),
                        ("ord_seq", "INTEGER"), ("old_enforce", "TEXT"),
-                       ("cite_naked", "INTEGER"), ("clause_detail", "TEXT")):
+                       ("cite_naked", "INTEGER"), ("clause_detail", "TEXT"),
+                       ("cite_spacing", "INTEGER")):
         if name not in fcols:
             conn.execute(f"ALTER TABLE findings ADD COLUMN {name} {decl}")
     ocols = [r[1] for r in conn.execute("PRAGMA table_info(ordinances)")]

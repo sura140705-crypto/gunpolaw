@@ -34,9 +34,11 @@ def _scan(db_path):
     conn = db.connect(db_path)
     fcols = [r[1] for r in conn.execute("PRAGMA table_info(findings)")]
     naked = "f.cite_naked" if "cite_naked" in fcols else "0"
+    spacing = "f.cite_spacing" if "cite_spacing" in fcols else "0"
     rows = conn.execute(
         f"""SELECT o.mst, o.name, o.dept, o.enforce_date,
-                   f.severity, f.change_type, {naked} AS cite_naked
+                   f.severity, f.change_type, {naked} AS cite_naked,
+                   {spacing} AS cite_spacing
             FROM ordinances o
             LEFT JOIN findings f ON f.mst = o.mst""").fetchall()
     conn.close()
@@ -53,7 +55,7 @@ def _scan(db_path):
         })
         if r["severity"] is None:        # 인용/판정이 없는 조례
             continue
-        g = finding_grade(r["severity"], r["change_type"], r["cite_naked"])
+        g = finding_grade(r["severity"], r["change_type"], r["cite_naked"], r["cite_spacing"])
         o["grades"][g] += 1
         if g != "current":
             o["items_count"] += 1

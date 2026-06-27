@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gunpolaw.report import (
-    grade_of, action_text, build_model, render_html, model_to_csv,
+    grade_of, finding_grade, action_text, build_model, render_html, model_to_csv,
     _split_evidence, _diff_marks, _fmtdate, _evidence_block,
     _ord_block, GRADE_KEYS)
 
@@ -47,6 +47,18 @@ def test_action_renamed_law():
     a = action_text(_f(severity="review", change_type="제명변경", clause_label="",
                        detail="인용한 「의료법」이(가) 현행 법령명 「공공보건의료에 관한 법률」과(와) 다름 — 확인 후 정정"))
     assert "공공보건의료에 관한 법률" in a and "정정" in a, a
+
+
+def test_spacing_grade_and_action():
+    """약칭 붙여쓰기: 현행+띄어쓰기→서식(format), 행동지시에 띄어쓰기 안내."""
+    assert finding_grade("current", "동일", 0, 1) == "format"
+    assert finding_grade("current", "동일", 0, 0) == "current"
+    # 현행 + 띄어쓰기만 → 띄어쓰기 정비 안내(꺽쇠 아님)
+    a = action_text(_f(severity="current", change_type="동일", cite_spacing=1, cite_naked=0))
+    assert "띄어쓰기만 정비" in a and "꺽쇠" not in a, a
+    # 내용변경 + 띄어쓰기 → 정비 문안에 띄어쓰기 안내 덧붙음
+    b = action_text(_f(cite_spacing=1))
+    assert "띄어쓰기 정정" in b, b
 
 
 def test_action_unresolved_law():

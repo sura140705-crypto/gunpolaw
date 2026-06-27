@@ -187,20 +187,22 @@ def _extract_segments(segments):
                     seq -= 1                            # 채택 안 함 → 순서 보존
                     continue
                 # 띄어쓰기 오류로 약칭이 앞 단어에 붙은 경우("경우에는법"="경우에는"+약칭"법")
-                # — 등록된 약칭으로 redirect하고 서식(꺽쇠·띄어쓰기) 정비 대상으로(naked).
-                redirect = None
+                # — 등록 약칭으로 redirect하고 '띄어쓰기 정비' 대상으로(꺽쇠 아님). 하이라이트는
+                # 붙은 앞말(위원회는)을 빼고 약칭부터('법 제16조…') 잡도록 span을 당긴다.
+                redirect = al_hit = None
                 for al, full in doc_aliases.items():
                     if (al and base.endswith(al) and len(base) > len(al)
                             and base[-len(al) - 1] in _JOSA_BEFORE_ALIAS):
-                        redirect = full
+                        redirect, al_hit = full, al
                         break
                 if redirect:
                     clause = (m.group(3) or "").strip()
                     if classify(redirect) in ("법령", "자치법규"):
                         last_law = redirect
-                    # 약칭('법')의 띄어쓰기 오류일 뿐 — 정상 약칭 사용이라 꺽쇠 권고 대상 아님
-                    refs.append(_ref(redirect, clause, "alias", no, seq,
-                                     span=m.span(), raw=m.group(0)))
+                    plen = len(base) - len(al_hit)        # 붙은 앞말 길이(위원회는=4)
+                    s0, s1 = m.span()
+                    refs.append(_ref(redirect, clause, "alias_spacing", no, seq,
+                                     span=(s0 + plen, s1), raw=m.group(0)[plen:]))
                     continue
                 name = (base + (m.group(2) or "")).strip()
                 clause = (m.group(3) or "").strip()
@@ -279,11 +281,13 @@ def group_by_law(refs):
         })
         _oa, _sq = r.get("ord_article") or "", r.get("ord_seq") or 0
         _naked = r.get("alias_source") == "naked"   # 꺽쇠 없는 '전체 법령명' 인용만 True
+        _spacing = r.get("alias_source") == "alias_spacing"   # 약칭 붙여쓰기 오류
         for t in r.get("clause_tokens", []):
             g["clause_specs"].setdefault(t["label"], set()).add(
                 (t.get("hang"), t.get("ho"), t.get("mok")))
             g["occurrences"].append({
-                "label": t["label"], "ord_article": _oa, "ord_seq": _sq, "naked": _naked,
+                "label": t["label"], "ord_article": _oa, "ord_seq": _sq,
+                "naked": _naked, "spacing": _spacing,
                 "hang": t.get("hang"), "ho": t.get("ho"), "mok": t.get("mok")})
         # 출처 추적: 평이한 「」 인용(alias_source None)은 'bracket' 으로 기록.
         g["sources"].add(r.get("alias_source") or "bracket")
