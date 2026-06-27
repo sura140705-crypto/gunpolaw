@@ -11,16 +11,30 @@ from . import history
 from .extract import extract_citations_by_article, group_by_law
 
 
+class LiveSource:
+    """기본(라이브) 본문 출처 — 법제처 OpenAPI. analyze_ordinance의 기본값.
+
+    DB 기반 오프라인 재파싱(reparse._DBSource)이 같은 인터페이스로 갈아끼워진다.
+    """
+    get_ordinance_body = staticmethod(moleg.get_ordinance_body)
+    resolve_law_id = staticmethod(moleg.resolve_law_id)
+    get_law_body = staticmethod(moleg.get_law_body)
+    list_versions = staticmethod(history.list_versions)
+    body_with_xml_by_mst = staticmethod(history.body_with_xml_by_mst)
+
+
 def analyze_ordinance(mst, link_index=None, law_cache=None,
-                      deep=False, version_cache=None, old_cache=None):
+                      deep=False, version_cache=None, old_cache=None, src=None):
     """단일 조례 분석 -> {ordinance, findings, summary}.
 
     link_index: {정규화 법령명: 법령ID} (lnkOrg 사전, 선택). 법령ID 보강용.
     law_cache:  {법령ID: 현행 조문dict} 공유 캐시. 법령 본문 1회만 호출.
     deep:       True면 2단계 — 조례 당시 시행본을 받아 현행과 내용 diff로 확정.
     version_cache/old_cache: 2단계 캐시({법령ID:버전목록}, {버전MST:조문dict}).
+    src:        본문 출처(기본 LiveSource=API). reparse는 DB 기반 출처를 주입.
     """
-    body = moleg.get_ordinance_body(mst)
+    src = src or LiveSource
+    body = src.get_ordinance_body(mst)
     if "error" in body:
         return {"error": body["error"], "mst": mst}
     meta = body["meta"]
@@ -44,7 +58,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         law_seq = g.get("law_seq", 0)
         naked_any = g.get("naked_any", False)
         naked_only = g.get("naked_only", False)
-        law_id = link_index.get(name.replace(" ", "")) or moleg.resolve_law_id(name)
+        law_id = link_index.get(name.replace(" ", "")) or src.resolve_law_id(name)
         if not law_id:
             # 맨몸으로만 잡힌 미해소 법명은 오탐 가능성이 높아 침묵 드롭(노이즈 억제).
             if naked_only:
@@ -57,7 +71,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                 "ord_clause": law_loc, "ord_seq": law_seq, "cite_naked": 1 if naked_any else 0})
             continue
         if law_id not in law_body_cache:
-            law_xml = moleg.get_law_body(law_id)
+            law_xml = src.get_law_body(law_id)
             law_body_cache[law_id] = moleg.parse_law_articles(law_xml)
             # 원본 XML도 함께 넘겨 영속 → 파싱 규칙이 바뀌어도 재수집 없이 오프라인 재파싱
             fetched_laws[law_id] = {"name": name, "articles": law_body_cache[law_id],
@@ -68,12 +82,12 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         old_enforce = ""
         if deep:
             if law_id not in version_cache:
-                version_cache[law_id] = history.list_versions(name, law_id)
+                version_cache[law_id] = src.list_versions(name, law_id)
             vsel = history.as_of(version_cache[law_id], ord_enforce)
             if vsel:
                 old_enforce = vsel["enforce_date"]      # 당시 시행본 법령 일자
                 if vsel["mst"] not in old_cache:
-                    arts, vxml = history.body_with_xml_by_mst(vsel["mst"])
+                    arts, vxml = src.body_with_xml_by_mst(vsel["mst"])
                     old_cache[vsel["mst"]] = arts
                     # 원본 XML 영속 → 다음 파서 변경 시 deep 근거도 재수집 없이 재파싱
                     fetched_versions[vsel["mst"]] = {

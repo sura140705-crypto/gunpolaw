@@ -33,6 +33,72 @@ def _now():
     return datetime.now().isoformat(timespec="seconds")
 
 
+def persist_result(conn, mst, res, org="", update_ordinance=True):
+    """analyze_ordinance 결과 1건을 DB에 적재(배치·reparse 공용 단일 출처).
+
+    update_ordinance=False(reparse)면 조례 메타(dept/시행일 등)는 건드리지 않고
+    findings/citations/law_articles 등 '파싱 산출물'만 다시 쓴다. 호출 측에서
+    findings·citations 는 미리 비워둔다(배치는 전체 DELETE, reparse도 동일).
+    """
+    o = res["ordinance"]
+    if update_ordinance:
+        # collect_ordinances 가 채운 lid/knd/sborg/promulg 는 보존하고 본문·담당과만 갱신
+        conn.execute(
+            """UPDATE ordinances
+               SET name=?, enforce_date=?, org=?, dept=?, phone=?, body_xml=?, fetched_at=?
+               WHERE mst=?""",
+            (o["name"], o["enforce_date"], org, o.get("dept", ""), o.get("phone", ""),
+             res.get("body_xml", ""), _now(), mst))
+    for f in res["findings"]:
+        conn.execute(
+            """INSERT INTO findings(mst, law_id, law_name, clause_label, category,
+                   severity, change_type, ord_clause, ord_seq, detail, ord_enforce,
+                   old_enforce, clause_enforce, evidence, cite_naked, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (mst, f["law_id"], f["law_name"], f["clause_label"], f["category"],
+             f["severity"], f.get("change_type", ""), f.get("ord_clause", ""),
+             f.get("ord_seq", 0), f["detail"], f["ord_enforce"],
+             f.get("old_enforce", ""), f["clause_enforce"],
+             (f["evidence"] or "")[:8000], f.get("cite_naked", 0), _now()))
+    # 새로 받은(또는 DB에서 재파싱한) 법령 현행 본문·조문 영속
+    for law_id, lw in res.get("fetched_laws", {}).items():
+        conn.execute(
+            "INSERT OR REPLACE INTO laws(law_id, name, body_xml, fetched_at) VALUES (?,?,?,?)",
+            (law_id, lw["name"], lw.get("body_xml", ""), _now()))
+        for label, a in lw["articles"].items():
+            jo, ga = _label_nums(label)
+            conn.execute(
+                """INSERT OR REPLACE INTO law_articles
+                   (law_id, label, jo, ga, title, enforce_date,
+                    moved_from, moved_to, changed, content)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (law_id, label, jo, ga, a.get("title", ""), a.get("enforce_date", ""),
+                 a.get("moved_from", ""), a.get("moved_to", ""),
+                 1 if a.get("changed") else 0, a.get("content", "")))
+    # 당시 시행본(deep) 원본 XML 영속 — 다음 파서 변경 시 deep 근거도 오프라인 재파싱
+    for vmst, v in res.get("fetched_versions", {}).items():
+        conn.execute(
+            """INSERT OR REPLACE INTO law_versions
+               (law_id, version_mst, enforce_date, body_xml, fetched_at)
+               VALUES (?,?,?,?,?)""",
+            (v["law_id"], vmst, v.get("enforce_date", ""), v.get("body_xml", ""), _now()))
+    # 인용 위치(span)·맨몸 플래그 영속 — 하이라이트를 DB에서 서빙(라이브 추출 제거)
+    for r in res.get("citations", []):
+        if r["type"] == "기타":           # 일반어(법령/다른 법령 등) 제외
+            continue
+        s = r.get("span") or (0, 0)
+        conn.execute(
+            """INSERT INTO citations
+               (mst, article_no, law_name, law_id, clause_label, alias_source,
+                raw_text, span_start, span_end, cite_naked, ord_seq, cite_type)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (mst, r.get("ord_article", ""), r["name"], "",
+             ",".join(r["clause_labels"]), r.get("alias_source") or "",
+             r.get("raw", ""), s[0], s[1],
+             1 if r.get("alias_source") == "naked" else 0,
+             r.get("ord_seq", 0), r["type"]))
+
+
 def collect_ordinances(conn, org, sborg, verbose=True):
     """목록 API(target=ordin)로 자치법규 전수 수집 → ordinances 테이블 적재."""
     items, by_knd = [], {}
@@ -104,63 +170,9 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
                 print(f"  [{i}/{len(msts)}] {name[:30]} → 오류: {res['error']}")
             continue
         o = res["ordinance"]
-        # collect_ordinances 가 채운 lid/knd/sborg/promulg 는 보존하고 본문·담당과만 갱신
-        # (구 코드의 INSERT OR REPLACE 는 그 컬럼들을 NULL 로 날렸음).
-        conn.execute(
-            """UPDATE ordinances
-               SET name=?, enforce_date=?, org=?, dept=?, phone=?, body_xml=?, fetched_at=?
-               WHERE mst=?""",
-            (o["name"], o["enforce_date"], org, o.get("dept", ""), o.get("phone", ""),
-             res.get("body_xml", ""), _now(), mst))
+        persist_result(conn, mst, res, org=org)
         for f in res["findings"]:
-            conn.execute(
-                """INSERT INTO findings(mst, law_id, law_name, clause_label, category,
-                       severity, change_type, ord_clause, ord_seq, detail, ord_enforce,
-                       old_enforce, clause_enforce, evidence, cite_naked, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (mst, f["law_id"], f["law_name"], f["clause_label"], f["category"],
-                 f["severity"], f.get("change_type", ""), f.get("ord_clause", ""),
-                 f.get("ord_seq", 0), f["detail"], f["ord_enforce"],
-                 f.get("old_enforce", ""), f["clause_enforce"],
-                 (f["evidence"] or "")[:8000], f.get("cite_naked", 0), _now()))
             agg[f["severity"]] = agg.get(f["severity"], 0) + 1
-        # 이번에 새로 받은 법령의 현행 본문·조문을 영속(서빙은 DB만 읽음 — 라이브 호출 제거)
-        for law_id, lw in res.get("fetched_laws", {}).items():
-            conn.execute(
-                "INSERT OR REPLACE INTO laws(law_id, name, body_xml, fetched_at) VALUES (?,?,?,?)",
-                (law_id, lw["name"], lw.get("body_xml", ""), _now()))
-            for label, a in lw["articles"].items():
-                jo, ga = _label_nums(label)
-                conn.execute(
-                    """INSERT OR REPLACE INTO law_articles
-                       (law_id, label, jo, ga, title, enforce_date,
-                        moved_from, moved_to, changed, content)
-                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                    (law_id, label, jo, ga, a.get("title", ""), a.get("enforce_date", ""),
-                     a.get("moved_from", ""), a.get("moved_to", ""),
-                     1 if a.get("changed") else 0, a.get("content", "")))
-        # 당시 시행본(deep) 원본 XML 영속 — 다음 파서 변경 시 deep 근거도 오프라인 재파싱
-        for vmst, v in res.get("fetched_versions", {}).items():
-            conn.execute(
-                """INSERT OR REPLACE INTO law_versions
-                   (law_id, version_mst, enforce_date, body_xml, fetched_at)
-                   VALUES (?,?,?,?,?)""",
-                (v["law_id"], vmst, v.get("enforce_date", ""), v.get("body_xml", ""), _now()))
-        # 인용 위치(span)·맨몸 플래그를 영속 — 하이라이트를 DB에서 서빙(라이브 추출 제거 토대)
-        for r in res.get("citations", []):
-            if r["type"] == "기타":           # 일반어(법령/다른 법령 등) 제외
-                continue
-            s = r.get("span") or (0, 0)
-            conn.execute(
-                """INSERT INTO citations
-                   (mst, article_no, law_name, law_id, clause_label, alias_source,
-                    raw_text, span_start, span_end, cite_naked, ord_seq, cite_type)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (mst, r.get("ord_article", ""), r["name"], "",
-                 ",".join(r["clause_labels"]), r.get("alias_source") or "",
-                 r.get("raw", ""), s[0], s[1],
-                 1 if r.get("alias_source") == "naked" else 0,
-                 r.get("ord_seq", 0), r["type"]))
         conn.commit()
         if verbose:
             nonc = sum(1 for f in res["findings"] if f["severity"] != "current")

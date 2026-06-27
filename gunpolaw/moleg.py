@@ -94,8 +94,16 @@ def search_ordinances(org, sborg, knd, page=1, display=100):
 
 
 def get_ordinance_body(mst):
-    """자치법규 본문 -> {meta, articles, full_text}."""
+    """자치법규 본문 -> {meta, articles, full_text}. (라이브: API 호출 후 파싱)"""
     xml = call("lawService.do", {"target": "ordin", "MST": str(mst), "type": "XML"})
+    return parse_ordinance_body(xml)
+
+
+def parse_ordinance_body(xml):
+    """자치법규 본문 XML -> {meta, articles, full_text, xml}.
+
+    수집(라이브)과 오프라인 재파싱(DB의 body_xml)이 같은 파서를 쓰도록 분리.
+    """
     if not xml:
         return {"error": "본문 조회 실패"}
     root = ET.fromstring(xml)
