@@ -114,9 +114,17 @@ _DEF = "\n".join([
 
 def test_tokenize_captures_ho_mok():
     t = tokenize_clauses("제3조제5호나목")[0]
-    assert (t["jo"], t["ho"], t["mok"]) == (3, 5, "나"), t
+    assert (t["jo"], t["ho"], t["mok"]) == (3, "5", "나"), t
     t2 = tokenize_clauses("제16조제3항")[0]
     assert (t2["jo"], t2["hang"], t2["ho"]) == (16, 3, None), t2
+
+
+def test_tokenize_ho_enumeration_with_branch():
+    """'제2조제3호, 제4호, 제9호 및 제10의 2호' → 호별 토큰 4개(가지호 포함)."""
+    toks = tokenize_clauses("제2조제3호, 제4호, 제9호 및 제10의 2호")
+    hos = {t["ho"] for t in toks}
+    assert hos == {"3", "4", "9", "10의2"}, hos
+    assert all(t["label"] == "제2조" for t in toks)
 
 
 def test_extract_subunit_ho_and_mok():

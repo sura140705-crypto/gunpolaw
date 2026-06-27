@@ -12,8 +12,12 @@ JO_SINGLE_RE = re.compile(r'제(\d+)조(?:의(\d+))?')
 JO_RANGE_RE = re.compile(
     r'제(\d+)조(?:의(\d+))?\s*부터\s*제(\d+)조(?:의(\d+))?\s*까지'
 )
-# 조 뒤의 항·호·목(각각 선택). "제3항제5호나목" / "제5호" / "제3항" / "나목" 모두 수용.
-SUBUNIT_RE = re.compile(r'\s*(?:제(\d+)항)?\s*(?:제(\d+)호)?\s*(?:([가-힣])목)?')
+# 조 뒤의 항(단일)·호 나열(가지호 포함)·목(단일). "제3호, 제4호 및 제10의 2호" 같은 a,b,c,d.
+_HANG_P = re.compile(r'\s*제(\d+)항')
+_HO_ENUM_P = re.compile(
+    r'\s*(제\d+(?:\s*의\s*\d+)?호(?:\s*(?:,|ㆍ|·|및|또는)\s*제\d+(?:\s*의\s*\d+)?호)*)')
+_HO_P = re.compile(r'제(\d+(?:\s*의\s*\d+)?)호')
+_MOK_P = re.compile(r'\s*([가-힣])목')
 
 
 def to_label(jo, ga=0):
@@ -60,26 +64,34 @@ def tokenize_clauses(clause_text):
     if pos < len(clause_text):
         rest.append((pos, len(clause_text)))
 
-    seen = set()
     for s, e in rest:
         sub = clause_text[s:e]
         for m in JO_SINGLE_RE.finditer(sub):
             jo, ga = int(m.group(1)), int(m.group(2) or 0)
-            tail = sub[m.end(): m.end() + 30]
-            su = SUBUNIT_RE.match(tail)
-            hang = int(su.group(1)) if (su and su.group(1)) else None
-            ho = int(su.group(2)) if (su and su.group(2)) else None
-            mok = su.group(3) if (su and su.group(3)) else None
             label = to_label(jo, ga)
-            key = (label, hang, ho, mok)
-            if key in seen:
-                continue
-            seen.add(key)
-            tokens.append({"label": label, "jo": jo, "ga": ga,
-                           "hang": hang, "ho": ho, "mok": mok})
+            tail = sub[m.end(): m.end() + 80]
+            pos = 0
+            hm = _HANG_P.match(tail, pos)
+            hang = int(hm.group(1)) if hm else None
+            if hm:
+                pos = hm.end()
+            em = _HO_ENUM_P.match(tail, pos)
+            mok = None
+            if em:
+                hos = [re.sub(r"\s+", "", h) for h in _HO_P.findall(em.group(1))]
+                mk = _MOK_P.match(tail, em.end()) if len(hos) == 1 else None
+                mok = mk.group(1) if mk else None
+            else:
+                hos = []
+            # 호 나열은 각 호를 별도 토큰으로(조례 조문별·호별 판정). 호 없으면 항/조 단위.
+            subs = [(hang, h, (mok if len(hos) == 1 else None)) for h in hos] \
+                or [(hang, None, None)]
+            for hg, h, mk in subs:
+                tokens.append({"label": label, "jo": jo, "ga": ga,
+                               "hang": hg, "ho": h, "mok": mk})
 
-    # label 기준 중복 제거 (시점 검증은 label만 필요)
+    # (label, 항, 호, 목) 전체 키로 중복 제거 — 같은 조의 서로 다른 호는 보존
     uniq = {}
     for t in tokens:
-        uniq.setdefault(t["label"], t)
+        uniq.setdefault((t["label"], t["hang"], t["ho"], t["mok"]), t)
     return list(uniq.values())

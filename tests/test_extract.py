@@ -144,8 +144,8 @@ def test_occurrences_split_by_article_and_subunit():
     g = group_by_law(extract_citations_by_article(articles))
     occ = g["재난 및 안전관리 기본법"]["occurrences"]
     keys = {(o["ord_article"], o["label"], o["ho"]) for o in occ}
-    assert ("제2조", "제3조", 5) in keys, occ
-    assert ("제4조", "제3조", 1) in keys, occ
+    assert ("제2조", "제3조", "5") in keys, occ
+    assert ("제4조", "제3조", "1") in keys, occ
     assert len(occ) == 2                      # 조례 조문별로 별개
 
 
