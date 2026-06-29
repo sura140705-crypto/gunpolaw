@@ -63,9 +63,11 @@ def persist_result(conn, mst, res, org="", update_ordinance=True):
              f.get("cite_spacing", 0), _now()))
     # 새로 받은(또는 DB에서 재파싱한) 법령 현행 본문·조문 영속
     for law_id, lw in res.get("fetched_laws", {}).items():
+        vkey = moleg.law_version_sig(lw.get("body_xml", ""))   # 공포일자|공포번호(델타 감지)
         conn.execute(
-            "INSERT OR REPLACE INTO laws(law_id, name, body_xml, fetched_at) VALUES (?,?,?,?)",
-            (law_id, lw["name"], lw.get("body_xml", ""), _now()))
+            "INSERT OR REPLACE INTO laws(law_id, name, body_xml, version_key, fetched_at) "
+            "VALUES (?,?,?,?,?)",
+            (law_id, lw["name"], lw.get("body_xml", ""), vkey, _now()))
         for label, a in lw["articles"].items():
             jo, ga = _label_nums(label)
             conn.execute(
@@ -133,6 +135,50 @@ def collect_ordinances(conn, org, sborg, verbose=True):
     return items
 
 
+def detect_law_changes(conn, old_keys):
+    """직전 스냅샷의 버전키(old_keys: {law_id: version_key}) 대비 현재 laws 의 변화를
+    law_changes 에 적재. 공포일자|공포번호가 달라진 법령 = 개정. 영향 조례 수는
+    citations 역추적으로 센다. 반환: 감지된 개정 건수.
+
+    첫 베이스라인(old_key 없음)·신규 수집 법령은 '개정'으로 보지 않는다(거짓 대량감지 방지).
+    """
+    conn.execute("DELETE FROM law_changes")
+    changed = 0
+    for r in conn.execute("SELECT law_id, name, body_xml, version_key FROM laws"):
+        lid, nkey = r["law_id"], (r["version_key"] or "")
+        okey = old_keys.get(lid)
+        if not okey or not nkey or okey == nkey:
+            continue                      # 베이스라인 없음/신규/동일 → 개정 아님
+        k = moleg.law_version_key(r["body_xml"])
+        affected = conn.execute(
+            "SELECT COUNT(DISTINCT mst) FROM citations WHERE law_id=? AND mst IS NOT NULL",
+            (lid,)).fetchone()[0]
+        conn.execute(
+            """INSERT OR REPLACE INTO law_changes
+               (law_id, name, old_key, new_key, new_enforce, revise_type, affected_n, detected_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (lid, r["name"], okey, nkey, k.get("enforce_date", ""),
+             k.get("revise_type", ""), affected, _now()))
+        changed += 1
+    conn.commit()
+    return changed
+
+
+def law_changes_report(db_path=db.DEFAULT_DB):
+    """감지된 법령 개정 + 각 개정이 영향 주는 조례(역추적). 영향 많은 순."""
+    conn = db.connect(db_path)
+    out = []
+    for r in conn.execute(
+            "SELECT * FROM law_changes ORDER BY affected_n DESC, name"):
+        ords = [dict(x) for x in conn.execute(
+            """SELECT DISTINCT c.mst, o.name, o.dept
+               FROM citations c JOIN ordinances o ON o.mst = c.mst
+               WHERE c.law_id = ? ORDER BY o.dept, o.name""", (r["law_id"],))]
+        out.append({**dict(r), "ordinances": ords})
+    conn.close()
+    return out
+
+
 def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
               db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False,
               region_name="군포시", incremental=False):
@@ -164,6 +210,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
         msts = msts[:limit]
 
     # 본문 출처 + 재작성 범위 분기
+    old_keys = None
     if incremental:
         from .reparse import DBFirstSource   # 지연 import(reparse→batch 순환 회피)
         src = DBFirstSource(conn)
@@ -173,6 +220,9 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
         conn.execute("DELETE FROM law_articles")
     else:
         src = LiveSource
+        # 델타 감지: 갈아엎기 전 직전 스냅샷의 버전키를 포착(개정 비교 기준)
+        old_keys = {r["law_id"]: (r["version_key"] or "")
+                    for r in conn.execute("SELECT law_id, version_key FROM laws")}
         # 전체 재수집: findings·법령본문 스냅샷을 현행 기준으로 통째 갈아끼움
         conn.execute("DELETE FROM findings")
         conn.execute("DELETE FROM laws")
@@ -207,6 +257,14 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
             print(f"  [{i}/{len(msts)}] {o['name'][:28]:<28} → 변경 {nonc}건")
         time.sleep(sleep)
 
+    # 법령 개정 델타 감지(전체 재수집 시만 — 증분은 본문 재사용이라 개정 판별 불가)
+    changed_laws = 0
+    if old_keys is not None:
+        changed_laws = detect_law_changes(conn, old_keys)
+        if verbose:
+            print(f"\n법령 개정 감지: {changed_laws}건"
+                  + (" (영향 조례는 --changes 로 확인)" if changed_laws else ""))
+
     # 배치 스냅샷 stamp — UI 기준일 배너·타 시군 재사용 설정
     findings_n = conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
     laws_n = conn.execute("SELECT COUNT(*) FROM laws").fetchone()[0]
@@ -224,7 +282,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
               f"조례 {misses['ordinance']} (나머지는 DB 재사용)")
     return {"processed": len(msts), "errors": errors, "agg": agg, "db": str(db_path),
             "laws": laws_n, "findings": findings_n, "batch_date": _now(),
-            "incremental": incremental, "misses": misses}
+            "incremental": incremental, "misses": misses, "changed_laws": changed_laws}
 
 
 def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):

@@ -22,6 +22,7 @@ def main(argv):
         print("       (--deep=내용diff 확정 · --incr=증분: DB 재사용+신규만 수집)")
         print("  python -m gunpolaw <MST> [--deep]        조례 1건(--deep=2단계)")
         print("  python -m gunpolaw --report             저장 결과 집계")
+        print("  python -m gunpolaw --changes            감지된 법령 개정 → 영향 조례(역추적)")
         print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(3단계)")
         print("  python -m gunpolaw --serve [포트]       총괄 대시보드 서빙(읽기전용, 기본 8765)")
         print("  python -m gunpolaw --reparse            영속 body_xml로 재파싱(라이브 API 0)")
@@ -44,6 +45,20 @@ def main(argv):
     if argv[0] == "--report":
         from .batch import report
         report()
+        return 0
+
+    if argv[0] == "--changes":
+        from .batch import law_changes_report
+        rows = law_changes_report()
+        if not rows:
+            print("감지된 법령 개정 없음(전체 재수집 후 직전 스냅샷 대비 변화 기준).")
+            return 0
+        print(f"=== 법령 개정 감지 {len(rows)}건 (영향 조례 역추적) ===")
+        for r in rows:
+            print(f"\n「{r['name']}」 {r['old_key']} → {r['new_key']} "
+                  f"[{r['revise_type']}, 시행 {r['new_enforce']}]  영향 조례 {r['affected_n']}건")
+            for o in r["ordinances"]:
+                print(f"    · {o['name']}  ({o['dept'] or '미지정'})")
         return 0
 
     if argv[0] == "--serve":

@@ -235,6 +235,33 @@ def law_name_of(xml):
     return (el.text or "").strip() if el is not None else ""
 
 
+def law_version_key(xml):
+    """법령 본문 XML → 버전 식별 정보 dict. 공포일자+공포번호가 그 법령의 한 '버전'을
+    유일하게 식별한다(개정되면 새 공포일자/번호 발급). 시행일자는 그 개정의 효력일.
+    없으면 빈 dict."""
+    if not xml:
+        return {}
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return {}
+    bi = root.find(".//기본정보")
+    if bi is None:
+        return {}
+    g = lambda t: (bi.findtext(t) or "").strip()
+    return {"promulg_date": g("공포일자"), "promulg_no": g("공포번호"),
+            "enforce_date": g("시행일자"), "revise_type": g("제개정구분"),
+            "name": g("법령명_한글")}
+
+
+def law_version_sig(xml):
+    """버전 비교용 시그니처 — '공포일자|공포번호'. 스냅샷 간 이 값이 바뀌면 개정."""
+    k = law_version_key(xml)
+    if not k:
+        return ""
+    return f"{k.get('promulg_date', '')}|{k.get('promulg_no', '')}"
+
+
 def parse_law_articles(xml):
     """법령 본문 XML -> {라벨: 조문메타}. 조문이동 코드는 라벨로 decode."""
     if not xml:

@@ -221,6 +221,9 @@ class _Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/ordinance/"):
                 mst = path.rsplit("/", 1)[-1]
                 return self._json(ordinance_detail(self.db_path, mst))
+            if path == "/api/changes":
+                from .batch import law_changes_report
+                return self._json(law_changes_report(self.db_path))
             if path == "/api/dept_report":
                 q = parse_qs(u.query)
                 dept = (q.get("dept") or [""])[0]

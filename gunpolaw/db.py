@@ -42,10 +42,24 @@ CREATE TABLE IF NOT EXISTS batch_meta (
 
 -- 상위법령 현행본 : target=law 로 채움
 CREATE TABLE IF NOT EXISTS laws (
-    law_id     TEXT PRIMARY KEY,
-    name       TEXT,
-    body_xml   TEXT,
-    fetched_at TEXT
+    law_id      TEXT PRIMARY KEY,
+    name        TEXT,
+    body_xml    TEXT,
+    version_key TEXT,              -- 공포일자|공포번호 (개정 델타 감지용 버전 식별자)
+    fetched_at  TEXT
+);
+
+-- 법령 개정 델타 : 전체 재수집(주1회) 시 직전 스냅샷 대비 버전키가 바뀐 법령.
+-- 영향 조례는 citations(law_id→mst) 역추적으로 질의 시점에 구한다.
+CREATE TABLE IF NOT EXISTS law_changes (
+    law_id      TEXT PRIMARY KEY,
+    name        TEXT,
+    old_key     TEXT,              -- 직전 공포일자|공포번호
+    new_key     TEXT,              -- 현재 공포일자|공포번호
+    new_enforce TEXT,              -- 새 시행일자(개정 효력일)
+    revise_type TEXT,              -- 제개정구분(일부개정/전부개정 등)
+    affected_n  INTEGER,           -- 이 법령을 인용하는 조례 수(역추적)
+    detected_at TEXT
 );
 
 -- 법령 조문 단위(변경 판정의 핵심) : 법령 본문 파싱
@@ -143,6 +157,9 @@ def init_db(db_path=DEFAULT_DB):
     for name, decl in (("dept", "TEXT"), ("phone", "TEXT")):
         if name not in ocols:
             conn.execute(f"ALTER TABLE ordinances ADD COLUMN {name} {decl}")
+    lcols = [r[1] for r in conn.execute("PRAGMA table_info(laws)")]
+    if "version_key" not in lcols:
+        conn.execute("ALTER TABLE laws ADD COLUMN version_key TEXT")
     ccols = [r[1] for r in conn.execute("PRAGMA table_info(citations)")]
     for name, decl in (("span_start", "INTEGER"), ("span_end", "INTEGER"),
                        ("cite_naked", "INTEGER"), ("ord_seq", "INTEGER"),
