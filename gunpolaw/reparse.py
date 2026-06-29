@@ -8,6 +8,8 @@ DB의 원본 XML(ordinances.body_xml / laws.body_xml / law_versions.body_xml)을
 전제: 직전 배치가 body_xml(현행+당시본)을 영속했을 것. 새 법령·새 당시본이 필요한
 경우(인용이 새로 생긴 미수집 법령)는 재수집(--batch)이 필요하다.
 """
+from datetime import datetime, timedelta
+
 from . import db
 from . import moleg
 from .pipeline import analyze_ordinance, LiveSource
@@ -79,26 +81,52 @@ class _DBSource:
         return moleg.parse_law_articles(xml), xml
 
 
-class DBFirstSource:
-    """증분 수집 출처 — 영속 body_xml 우선, 미스면 LiveSource(API)로 받아 폴백.
+class StaleAwareSource:
+    """신선도 기반 수집 출처 — fetched_at 이 max_age_days 이내면 DB 재사용, 지나면 라이브 재수집.
 
-    이미 영속된 법령 현행본·당시본·조례 본문은 API 0회로 재사용하고, 새로 인용된
-    미수집 법령·신규 조례·미저장 당시본만 라이브로 받는다. 폴백으로 받은 본문은
-    analyze_ordinance의 fetched_laws/fetched_versions에 실려 persist_result가 DB에
-    영속 → 다음 실행부터 재사용. (이미 가진 본문은 다시 받지 않으므로 '법령 개정
-    재검출'은 전체 재수집 run_batch(incremental=False)의 몫이다.)
+    max_age_days=0    → 전부 재수집(전체 배치; 법령 개정 재검출).
+    max_age_days=None → 무한 재사용(있으면 무조건 DB, 신규만 라이브 = 증분).
+    그 외 N           → N일 이내 수집분 재사용, 오래된 것만 재수집(주1회 갱신=7).
+
+    당시 시행본(law_versions)은 불변 과거본이라 본문은 항상 DB 우선(미스만 라이브).
+    버전 '목록'은 현행본이 신선하지 않을 때만 라이브로 갱신(새 개정분 포함).
+    재사용분의 fetched_at 은 보존해야 신선도 판단이 망가지지 않음 → run_batch 가 사후 복원.
     """
 
-    def __init__(self, conn, live=None):
+    def __init__(self, conn, max_age_days=0, live=None):
         self.conn = conn
+        self.max_age = max_age_days
         self._db = _DBSource(conn)
         self._live = live or LiveSource
-        self.misses = {"ordinance": 0, "law": 0, "version": 0}
+        self.reused_law_at = {}    # {law_id: 보존할 fetched_at}
+        self.reused_ord_at = {}    # {mst: 보존할 fetched_at}
+        self.misses = {"ordinance": 0, "law": 0, "version": 0,
+                       "ordinance_reused": 0, "law_reused": 0}
+        self._cutoff = None
+        if isinstance(max_age_days, (int, float)) and max_age_days > 0:
+            self._cutoff = datetime.now() - timedelta(days=max_age_days)
+
+    def _fresh(self, fetched_at):
+        if self.max_age is None:            # 무한 — 있으면 재사용
+            return bool(fetched_at)
+        if self._cutoff is None:            # 0/음수 — 항상 재수집
+            return False
+        if not fetched_at:
+            return False
+        try:
+            return datetime.fromisoformat(fetched_at) >= self._cutoff
+        except ValueError:
+            return False
 
     def get_ordinance_body(self, mst):
-        r = self._db.get_ordinance_body(mst)
-        if "error" not in r:
-            return r
+        row = self.conn.execute(
+            "SELECT fetched_at FROM ordinances WHERE mst=?", (str(mst),)).fetchone()
+        if row and self._fresh(row["fetched_at"]):
+            r = self._db.get_ordinance_body(mst)
+            if "error" not in r:
+                self.reused_ord_at[str(mst)] = row["fetched_at"]
+                self.misses["ordinance_reused"] += 1
+                return r
         self.misses["ordinance"] += 1
         return self._live.get_ordinance_body(mst)
 
@@ -107,22 +135,25 @@ class DBFirstSource:
         return self._db.resolve_law_id(name) or self._live.resolve_law_id(name)
 
     def get_law_body(self, law_id):
-        xml = self._db.get_law_body(law_id)
-        if xml:
-            return xml
+        row = self.conn.execute(
+            "SELECT body_xml, fetched_at FROM laws WHERE law_id=?", (str(law_id),)).fetchone()
+        if row and row["body_xml"] and self._fresh(row["fetched_at"]):
+            self.reused_law_at[str(law_id)] = row["fetched_at"]
+            self.misses["law_reused"] += 1
+            return row["body_xml"]
         self.misses["law"] += 1
         return self._live.get_law_body(law_id)
 
     def list_versions(self, law_name, law_id=None):
-        # 적재된 당시본이 하나라도 있으면 그걸로 as_of(reparse와 동일 동작). 전무한
-        # 신규 법령만 라이브로 전체 버전목록을 받는다.
-        vs = self._db.list_versions(law_name, law_id)
-        if vs:
-            return vs
-        return self._live.list_versions(law_name, law_id)
+        have = self._db.list_versions(law_name, law_id)
+        row = self.conn.execute(
+            "SELECT fetched_at FROM laws WHERE law_id=?", (str(law_id),)).fetchone()
+        if have and row and self._fresh(row["fetched_at"]):
+            return have                     # 현행본 신선 → 저장 버전목록 재사용
+        return self._live.list_versions(law_name, law_id) or have
 
     def body_with_xml_by_mst(self, mst):
-        arts, xml = self._db.body_with_xml_by_mst(mst)
+        arts, xml = self._db.body_with_xml_by_mst(mst)   # 당시본은 불변 → DB 우선
         if xml:
             return arts, xml
         self.misses["version"] += 1

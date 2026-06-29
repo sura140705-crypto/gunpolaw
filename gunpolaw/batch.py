@@ -246,13 +246,16 @@ def law_changes_report(db_path=db.DEFAULT_DB):
 
 def run_batch(org=None, sborg=None, limit=None,
               db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False,
-              region_name=None, incremental=False, knd_codes=None):
+              region_name=None, max_age_days=0, knd_codes=None):
     """전수 일괄 수집·분석. org/sborg/region_name/knd_codes 미지정 시 config(환경변수/JSON).
 
-    incremental=False(기본): 라이브 전건 — 모든 법령 본문을 새로 받아 개정까지 재검출(주1회).
-    incremental=True: DB 우선 — 이미 영속된 법령/조례/당시본은 재사용하고, 새로 인용된
-        미수집 법령·신규 조례·미저장 당시본만 라이브로 받는다(빠른 증분 갱신). 단 이미 가진
-        본문은 다시 받지 않으므로 '법령 개정 재검출'은 전체 재수집(incremental=False)의 몫.
+    수집 신선도(max_age_days)로 재사용/재수집을 fetched_at 단위로 자동 판단:
+      0(기본)  전부 재수집 — 모든 법령 본문을 새로 받아 개정까지 재검출(주1회 풀배치).
+      None     무한 재사용 — DB에 있으면 무조건 재사용, 신규만 라이브(빠른 증분).
+      N        N일 이내 수집분 재사용, 오래된 것만 재수집(예: 7=주1회 신선도).
+    원본 본문(laws/law_versions/ordinances.body_xml)은 보존하고 신선도로 선별 재사용하며,
+    파생물(findings/citations/law_articles)은 매 실행 재생성한다. 델타 감지는 모든 모드에서
+    동작(재수집된 법령만 개정 비교 — 재사용분은 version_key 동일이라 자동 제외).
     """
     cfg = config.load()
     org = org or cfg["org"]
@@ -282,29 +285,21 @@ def run_batch(org=None, sborg=None, limit=None,
     if limit:
         msts = msts[:limit]
 
-    # 본문 출처 + 재작성 범위 분기
-    old_keys = None
-    if incremental:
-        from .reparse import DBFirstSource   # 지연 import(reparse→batch 순환 회피)
-        src = DBFirstSource(conn)
-        # 원본 본문(laws/law_versions/ordinances.body_xml)은 보존 — 파생물만 비운다.
-        conn.execute("DELETE FROM findings")
-        conn.execute("DELETE FROM citations")
-        conn.execute("DELETE FROM law_articles")
-    else:
-        src = LiveSource
-        # 델타 감지: 갈아엎기 전 직전 스냅샷의 버전키를 포착(개정 비교 기준)
-        old_keys = {r["law_id"]: (r["version_key"] or "")
-                    for r in conn.execute("SELECT law_id, version_key FROM laws")}
-        # 전체 재수집: findings·법령본문 스냅샷을 현행 기준으로 통째 갈아끼움
-        conn.execute("DELETE FROM findings")
-        conn.execute("DELETE FROM laws")
-        conn.execute("DELETE FROM law_articles")
-        conn.execute("DELETE FROM law_versions")
-        conn.execute("DELETE FROM citations")
+    # 신선도 기반 단일 출처 — fetched_at 으로 재사용/재수집을 자동 판단(지연 import: 순환 회피)
+    from .reparse import StaleAwareSource
+    src = StaleAwareSource(conn, max_age_days)
+    # 델타 감지 기준: 갈아엎기 전 직전 스냅샷의 버전키 포착(개정 비교)
+    old_keys = {r["law_id"]: (r["version_key"] or "")
+                for r in conn.execute("SELECT law_id, version_key FROM laws")}
+    # 파생물만 비운다 — 원본 본문은 보존(신선도로 선별 재사용)
+    conn.execute("DELETE FROM findings")
+    conn.execute("DELETE FROM citations")
+    conn.execute("DELETE FROM law_articles")
     conn.commit()
     if verbose:
-        mode = "증분(DB우선·신규만 수집)" if incremental else "전체(라이브 전건)"
+        mode = ("전체 재수집" if max_age_days == 0 else
+                "증분(무한 재사용)" if max_age_days is None else
+                f"신선도 {max_age_days}일")
         print(f"분석 대상 {len(msts)}건 · 모드={mode} "
               f"(법령ID 보강사전 {len(link_index)}개)\n")
 
@@ -330,13 +325,17 @@ def run_batch(org=None, sborg=None, limit=None,
             print(f"  [{i}/{len(msts)}] {o['name'][:28]:<28} → 변경 {nonc}건")
         time.sleep(sleep)
 
-    # 법령 개정 델타 감지(전체 재수집 시만 — 증분은 본문 재사용이라 개정 판별 불가)
-    changed_laws = 0
-    if old_keys is not None:
-        changed_laws = detect_law_changes(conn, old_keys)
-        if verbose:
-            print(f"\n법령 개정 감지: {changed_laws}건"
-                  + (" (영향 조례는 --changes 로 확인)" if changed_laws else ""))
+    # 재사용분 fetched_at 복원 — persist 가 now 로 덮어쓴 것을 원시점으로(신선도 판단 보존)
+    for lid, at in src.reused_law_at.items():
+        conn.execute("UPDATE laws SET fetched_at=? WHERE law_id=?", (at, lid))
+    for m, at in src.reused_ord_at.items():
+        conn.execute("UPDATE ordinances SET fetched_at=? WHERE mst=?", (at, m))
+    conn.commit()
+
+    # 법령 개정 델타 감지 — 재수집된 법령만 version_key 변화로 잡힘(재사용분은 자동 제외)
+    changed_laws = detect_law_changes(conn, old_keys)
+    if verbose and changed_laws:
+        print(f"\n법령 개정 감지: {changed_laws}건 (영향 조례는 --changes 로 확인)")
 
     # 배치 스냅샷 stamp — UI 기준일 배너·타 시군 재사용 설정
     findings_n = conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
@@ -345,17 +344,19 @@ def run_batch(org=None, sborg=None, limit=None,
         """INSERT OR REPLACE INTO batch_meta
            (id, org, sborg, region_name, batch_date, ordinances_n, laws_n, findings_n, deep, status)
            VALUES (1,?,?,?,?,?,?,?,?,?)""",
-        (org, sborg, region_name, _now(), len(msts), laws_n, findings_n,
-         1 if deep else 0, "incremental" if incremental else "ok"))
+        (org, sborg, region_name, _now(), len(msts), laws_n, findings_n, 1 if deep else 0,
+         "ok" if max_age_days == 0 else
+         "incremental" if max_age_days is None else f"max_age_{max_age_days}"))
     conn.commit()
     conn.close()
     misses = getattr(src, "misses", None)
     if verbose and misses:
-        print(f"신규 수집(라이브): 법령 {misses['law']} · 당시본 {misses['version']} · "
-              f"조례 {misses['ordinance']} (나머지는 DB 재사용)")
+        print(f"수집: 법령 재수집 {misses['law']}·재사용 {misses['law_reused']} · "
+              f"당시본 신규 {misses['version']} · "
+              f"조례 재수집 {misses['ordinance']}·재사용 {misses['ordinance_reused']}")
     return {"processed": len(msts), "errors": errors, "agg": agg, "db": str(db_path),
             "laws": laws_n, "findings": findings_n, "batch_date": _now(),
-            "incremental": incremental, "misses": misses, "changed_laws": changed_laws}
+            "max_age_days": max_age_days, "misses": misses, "changed_laws": changed_laws}
 
 
 def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):

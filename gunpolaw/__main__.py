@@ -17,8 +17,8 @@ def main(argv):
     if not argv:
         print("사용법:")
         print("  python -m gunpolaw <MST>             조례 1건 분석")
-        print("  python -m gunpolaw --batch [N] [--deep] [--incr]  전수 일괄")
-        print("       (--deep=내용diff 확정 · --incr=증분: DB 재사용+신규만 수집)")
+        print("  python -m gunpolaw --batch [N] [--deep] [--incr|--max-age D]  전수 일괄")
+        print("       (--deep=내용diff 확정 · --incr=무한재사용 · --max-age D=D일 신선도)")
         print("  python -m gunpolaw <MST> [--deep]        조례 1건(--deep=2단계)")
         print("  python -m gunpolaw --report             저장 결과 집계")
         print("  python -m gunpolaw --changes            감지된 법령 개정 → 영향 조례(역추적)")
@@ -32,13 +32,22 @@ def main(argv):
 
     if argv[0] == "--batch":
         from .batch import run_batch
-        incremental = ("--incr" in argv) or ("--incremental" in argv)
-        nums = [a for a in argv[1:] if a.isdigit()]
+        args = argv[1:]
+        max_age = 0                          # 기본: 전체 재수집
+        if "--max-age" in args:
+            i = args.index("--max-age")
+            val = args[i + 1] if i + 1 < len(args) else ""
+            if val.isdigit():
+                max_age = int(val)
+                args = args[:i] + args[i + 2:]   # 플래그+값 소비(limit 오인 방지)
+        if ("--incr" in args) or ("--incremental" in args):
+            max_age = None                   # 증분: 무한 재사용
+        nums = [a for a in args if a.isdigit()]
         limit = int(nums[0]) if nums else None
-        res = run_batch(limit=limit, deep=deep, incremental=incremental)
-        mode = "증분" if incremental else "전체"
+        res = run_batch(limit=limit, deep=deep, max_age_days=max_age)
+        mode = "증분" if max_age is None else ("전체" if max_age == 0 else f"{max_age}일")
         print(f"\n처리 {res['processed']}건 (오류 {res['errors']}) → {res['db']}  [{mode}]")
-        print(f"등급 집계: {res['agg']}  (deep={deep})")
+        print(f"등급 집계: {res['agg']}  (deep={deep})  개정감지 {res['changed_laws']}건")
         return 0
 
     if argv[0] == "--report":
