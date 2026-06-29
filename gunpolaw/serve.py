@@ -157,6 +157,18 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
         """SELECT article_no, law_name, clause_label, span_start, span_end,
                   cite_naked, cite_type FROM citations WHERE mst = ?""",
         (str(mst),)).fetchall()
+    # 타 조례(자치법규) 인용 → 우리 DB의 해당 조례로 해소(이름 매칭, 공백 무시).
+    # 좌측 회색 인용 클릭 시 우측에 그 조례 미니 정보를 띄우기 위함. 키=공백 제거 법령명.
+    local_refs = {}
+    for c in cits:
+        if c["cite_type"] == "자치법규" and c["law_name"]:
+            key = c["law_name"].replace(" ", "")
+            if key not in local_refs:
+                ref = conn.execute(
+                    """SELECT mst, name, dept, enforce_date FROM ordinances
+                       WHERE REPLACE(name,' ','') = ? AND mst != ? LIMIT 1""",
+                    (key, str(mst))).fetchone()
+                local_refs[key] = (dict(ref) if ref else None)
     conn.close()
 
     by_art = {}
@@ -179,7 +191,7 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
                 })
 
     meta = {k: o[k] for k in o.keys() if k != "body_xml"} if o else {}
-    return {"meta": meta, "articles": articles,
+    return {"meta": meta, "articles": articles, "local_refs": local_refs,
             "recommend": recommend_fragment(mst, db_path, collapsible=True)}
 
 
@@ -345,8 +357,17 @@ mark.cite-law:hover{background:#bfdbfe;}
 mark.cite-naked{background:#ede9fe;color:#5b21b6;border-radius:3px;padding:0 2px;cursor:pointer;}
 mark.cite-naked:hover{background:#ddd6fe;}
 mark.cite-local{background:#f1f5f9;color:#64748b;border-radius:3px;padding:0 2px;
-                border-bottom:1px dotted #94a3b8;}
+                border-bottom:1px dotted #94a3b8;cursor:pointer;}
+mark.cite-local:hover{background:#e2e8f0;}
 mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
+/* 타 조례(자치법규) 인용 클릭 시 우측 미니 정보 카드 */
+.lref{position:relative;border:1px solid #c7d2fe;background:#eef2ff;border-radius:9px;
+      padding:10px 28px 10px 12px;margin:0 0 12px;}
+.lref .h{font-size:13px;font-weight:600;color:#3730a3;}
+.lref .tag{font-size:10.5px;background:#e0e7ff;color:#4338ca;border-radius:999px;
+           padding:1px 7px;font-weight:600;margin-left:4px;}
+.lref .m{font-size:12px;color:#6366f1;margin:4px 0 8px;}
+.lref .x{position:absolute;top:7px;right:10px;cursor:pointer;color:#94a3b8;font-size:16px;}
 .artsec{scroll-margin-top:8px;}
 .flash{animation:flash 1.4s ease;}
 @keyframes flash{0%{background:#fde68a;}70%{background:#fef3c7;}100%{background:transparent;}}
@@ -393,7 +414,7 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 <script>
 const GO=[]; const GM={};          // grade_order / grade_meta
 const PCLS={mechanical:"p-mech",review:"p-rev",check:"p-chk",format:"p-fmt",current:"p-cur"};
-let OV=null, curDept="", curMst="", cssInjected=false;
+let OV=null, curDept="", curMst="", cssInjected=false, LOCALREFS={};
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function fdate(s){const d=String(s||"").replace(/[^0-9]/g,"").slice(0,8);
@@ -495,6 +516,7 @@ async function selectOrd(mst){
   curMst=mst;
   const d=await getJSON(`/api/ordinance/${encodeURIComponent(mst)}`);
   const r=d.recommend||{}, m=d.meta||{}, arts=d.articles||[];
+  LOCALREFS=d.local_refs||{};
   if(r.css && !cssInjected){const s=document.createElement("style");
     s.textContent=r.css;document.head.appendChild(s);cssInjected=true;}
   const meta=`시행 ${fdate(m.enforce_date)} · 담당 ${esc(m.dept||"—")}`
@@ -510,8 +532,8 @@ async function selectOrd(mst){
   dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">← 목록</button>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="dsplit">
-       <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">상위법령 「」</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례(검토 대상 외)</span></div>${left}</div>
-       <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div>${right}</div>
+       <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">상위법령 「」</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례(클릭 시 정보)</span></div>${left}</div>
+       <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div><div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
   document.getElementById("layout").classList.add("detail-open");
@@ -524,6 +546,7 @@ function wireFocus(dp){
     || dp.querySelector(`.drec .citem[data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`);
   // 좌 인용 클릭 → 우 해당 검토항목 펼침 + 강조
   dp.querySelectorAll(".dbody mark[data-law]").forEach(mk=>mk.onclick=()=>{
+    if(mk.classList.contains("cite-local")){showLocalRef(mk.dataset.law);return;}
     const it=citem(mk.dataset.oc, mk.dataset.law, mk.dataset.clause);
     if(it){it.open=true; it.classList.add("focus");
       setTimeout(()=>it.classList.remove("focus"),1600); flash(it);}
@@ -543,6 +566,20 @@ function wireFocus(dp){
   });
 }
 function cssq(s){return String(s).replace(/["\\]/g,"\\$&");}
+function showLocalRef(name){
+  // 타 조례(자치법규) 인용 클릭 → 우측에 그 조례 미니 정보 카드(이름·담당과·시행일 + 열기)
+  const box=document.getElementById("localref"); if(!box)return;
+  const ref=LOCALREFS[String(name||"").replace(/\s/g,"")];
+  const inner = ref
+    ? `<div class="h">「${esc(ref.name)}」<span class="tag">자치법규</span></div>
+       <div class="m">담당 ${esc(ref.dept||"—")} · 시행 ${fdate(ref.enforce_date)}</div>
+       <button class="btn" onclick="selectOrd('${esc(ref.mst)}')">이 조례 열기 →</button>`
+    : `<div class="h">「${esc(name)}」<span class="tag">자치법규</span></div>
+       <div class="m muted">수집 범위 외 — 군포시 조례가 아니거나 미수집</div>`;
+  box.innerHTML=`<div class="lref">${inner}<span class="x" title="닫기"
+       onclick="document.getElementById('localref').innerHTML=''">×</span></div>`;
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
 function closeDetail(){curMst="";
   document.getElementById("detailPanel").style.display="none";
   document.getElementById("layout").classList.remove("detail-open");}
