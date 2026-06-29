@@ -73,18 +73,33 @@ _TOKEN_RE = re.compile(r"\w+|\s+|[^\w\s]", re.UNICODE)
 
 
 def _diff_marks(old, new):
-    """당시/현행 내용을 토큰 diff 하여 바뀐 부분만 <mark> 로 감싼 (당시HTML, 현행HTML)."""
+    """당시/현행 내용을 토큰 diff 하여 바뀐 부분을 <mark>로 감싼 (당시HTML, 현행HTML).
+
+    교체는 당시=빨강(d)·현행=초록(i). 한쪽에만 생긴 변화(순수 삽입/삭제)는 difflib이
+    공통 토큰을 양끝 앵커로 잡아 반대쪽에 표시가 사라지는데(예: '제77조부터 제84조까지'→
+    '제77조부터 제79조까지, 제82조부터 제84조까지'는 가운데 삽입), 그 경우 반대쪽에 삽입·
+    삭제 지점 캐럿(‸)을 찍어 당시·현행 양쪽 모두에서 변화가 드러나게 한다.
+    """
     a, b = _TOKEN_RE.findall(old or ""), _TOKEN_RE.findall(new or "")
     sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
     o_html, n_html = [], []
+    caret = '<mark class="pt" title="{}">‸</mark>'
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         at, bt = "".join(a[i1:i2]), "".join(b[j1:j2])
         if op == "equal":
             o_html.append(_esc(at))
             n_html.append(_esc(bt))
-            continue
-        o_html.append(f'<mark class="d">{_esc(at)}</mark>' if at.strip() else _esc(at))
-        n_html.append(f'<mark class="i">{_esc(bt)}</mark>' if bt.strip() else _esc(bt))
+        elif op == "insert":                      # 현행에만 추가 → 당시에 삽입 지점 캐럿
+            n_html.append(f'<mark class="i">{_esc(bt)}</mark>' if bt.strip() else _esc(bt))
+            if bt.strip():
+                o_html.append(caret.format(_esc(bt.strip()[:40]) + " 추가됨"))
+        elif op == "delete":                      # 당시에만 있던 것 삭제 → 현행에 삭제 지점 캐럿
+            o_html.append(f'<mark class="d">{_esc(at)}</mark>' if at.strip() else _esc(at))
+            if at.strip():
+                n_html.append(caret.format(_esc(at.strip()[:40]) + " 삭제됨"))
+        else:                                     # replace — 양쪽 모두 표시
+            o_html.append(f'<mark class="d">{_esc(at)}</mark>' if at.strip() else _esc(at))
+            n_html.append(f'<mark class="i">{_esc(bt)}</mark>' if bt.strip() else _esc(bt))
     return "".join(o_html), "".join(n_html)
 
 
@@ -362,11 +377,13 @@ details.citem.focus { box-shadow:inset 3px 0 0 #2563eb; }
 mark.d { background:#fee2e2; color:#991b1b; text-decoration:line-through;
          border-radius:2px; padding:0 1px; }
 mark.i { background:#dcfce7; color:#166534; border-radius:2px; padding:0 1px; }
+mark.pt { background:#fee2e2; color:#dc2626; font-weight:700; border-radius:2px;
+          padding:0 2px; cursor:help; }
 footer { color:#9ca3af; font-size:12px; margin-top:32px; text-align:center; }
 @media print {
   body { background:#fff; } .page { max-width:none; padding:0; }
   .ord, .card { border-color:#d1d5db; }
-  mark.d, mark.i { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  mark.d, mark.i, mark.pt { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 """
 
