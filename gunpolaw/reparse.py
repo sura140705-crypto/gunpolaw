@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """오프라인 재파싱 — 영속된 body_xml만으로 findings·law_articles·citations 재생성.
 
-파서(moleg.parse_law_articles 등)를 고친 뒤, 법제처 API를 한 번도 호출하지 않고
+파서(parse.parse_law_articles 등)를 고친 뒤, 법제처 API를 한 번도 호출하지 않고
 DB의 원본 XML(ordinances.body_xml / laws.body_xml / law_versions.body_xml)을
 다시 파싱·판정해 산출물만 갈아끼운다. 30분 재배치 → 수 초.
 
@@ -11,7 +11,7 @@ DB의 원본 XML(ordinances.body_xml / laws.body_xml / law_versions.body_xml)을
 from datetime import datetime, timedelta
 
 from . import db
-from . import moleg
+from .parse import parse_ordinance_body, parse_law_articles
 from .pipeline import analyze_ordinance, LiveSource
 from .batch import persist_result, _now
 
@@ -53,7 +53,7 @@ class _DBSource:
             (str(mst),)).fetchone()
         if not r or not r["body_xml"]:
             return {"error": "body_xml 미영속(재배치 필요)"}
-        parsed = moleg.parse_ordinance_body(r["body_xml"])
+        parsed = parse_ordinance_body(r["body_xml"])
         if "error" not in parsed:
             # 시행일은 목록 API 기준의 DB값을 정본으로(본문 XML과 어긋날 때 대비)
             parsed["meta"]["enforce_date"] = r["enforce_date"] or parsed["meta"].get("enforce_date", "")
@@ -78,7 +78,7 @@ class _DBSource:
         r = self.conn.execute("SELECT body_xml FROM law_versions WHERE version_mst=?",
                               (str(mst),)).fetchone()
         xml = (r["body_xml"] if r else "") or ""
-        return moleg.parse_law_articles(xml), xml
+        return parse_law_articles(xml), xml
 
 
 class StaleAwareSource:

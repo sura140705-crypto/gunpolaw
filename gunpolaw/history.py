@@ -9,6 +9,7 @@
 import xml.etree.ElementTree as ET
 
 from . import moleg
+from .parse import parse_law_articles
 
 
 def list_versions(law_name, law_id=None):
@@ -49,10 +50,10 @@ def body_xml_by_mst(mst):
 
 def body_articles_by_mst(mst):
     """특정 시행본(MST)의 조문 dict (target=law&MST)."""
-    return moleg.parse_law_articles(body_xml_by_mst(mst))
+    return parse_law_articles(body_xml_by_mst(mst))
 
 
 def body_with_xml_by_mst(mst):
     """특정 시행본(MST)의 (조문 dict, 원본 XML). XML은 law_versions 영속용."""
     xml = body_xml_by_mst(mst)
-    return moleg.parse_law_articles(xml), xml
+    return parse_law_articles(xml), xml

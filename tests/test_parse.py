@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gunpolaw.moleg import parse_law_articles, article_text, law_name_of
+from gunpolaw.parse import parse_law_articles, article_text, law_name_of
 import xml.etree.ElementTree as ET
 
 

@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote
 
 from . import db
-from . import moleg
+from .parse import parse_ordinance_body
 from .extract import normalize_text
 from .report import (GRADE_KEYS, GRADE_META, finding_grade, recommend_fragment,
                      build_model, render_html, model_to_csv)
@@ -165,7 +165,7 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
 
     articles = []
     if o and o["body_xml"]:
-        parsed = moleg.parse_ordinance_body(o["body_xml"])
+        parsed = parse_ordinance_body(o["body_xml"])
         if "error" not in parsed:
             for a in parsed["articles"]:
                 if not a.get("body"):

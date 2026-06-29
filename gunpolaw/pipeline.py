@@ -10,6 +10,7 @@ import re
 from . import moleg
 from . import checks
 from . import history
+from .parse import parse_law_articles, law_name_of
 from .extract import extract_citations_by_article, group_by_law
 
 
@@ -84,8 +85,8 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
             continue
         if law_id not in law_body_cache:
             law_xml = src.get_law_body(law_id)
-            law_body_cache[law_id] = moleg.parse_law_articles(law_xml)
-            law_name_cache[law_id] = moleg.law_name_of(law_xml)
+            law_body_cache[law_id] = parse_law_articles(law_xml)
+            law_name_cache[law_id] = law_name_of(law_xml)
             # 원본 XML도 함께 넘겨 영속 → 파싱 규칙이 바뀌어도 재수집 없이 오프라인 재파싱
             fetched_laws[law_id] = {"name": name, "articles": law_body_cache[law_id],
                                     "body_xml": law_xml or ""}

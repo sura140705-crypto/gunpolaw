@@ -11,6 +11,7 @@ from datetime import datetime
 from . import db
 from . import moleg
 from . import config
+from .parse import law_version_key, law_version_sig
 from .pipeline import analyze_ordinance, LiveSource
 
 _LABEL_RE = re.compile(r"제(\d+)조(?:의(\d+))?")
@@ -61,7 +62,7 @@ def persist_result(conn, mst, res, org="", update_ordinance=True):
              f.get("cite_spacing", 0), _now()))
     # 새로 받은(또는 DB에서 재파싱한) 법령 현행 본문·조문 영속
     for law_id, lw in res.get("fetched_laws", {}).items():
-        vkey = moleg.law_version_sig(lw.get("body_xml", ""))   # 공포일자|공포번호(델타 감지)
+        vkey = law_version_sig(lw.get("body_xml", ""))   # 공포일자|공포번호(델타 감지)
         conn.execute(
             "INSERT OR REPLACE INTO laws(law_id, name, body_xml, version_key, fetched_at) "
             "VALUES (?,?,?,?,?)",
@@ -203,7 +204,7 @@ def detect_law_changes(conn, old_keys):
         okey = old_keys.get(lid)
         if not okey or not nkey or okey == nkey:
             continue                      # 베이스라인 없음/신규/동일 → 개정 아님
-        k = moleg.law_version_key(r["body_xml"])
+        k = law_version_key(r["body_xml"])
         mode, labels = _changed_labels(conn, lid, k.get("revise_type", ""))
         cls = _classify_affected(conn, lid, mode, labels)
         ca = "*" if mode == "full" else ("" if mode == "unknown"

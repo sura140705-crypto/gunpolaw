@@ -20,7 +20,7 @@ import re
 from datetime import datetime
 
 from . import db
-from . import moleg
+from .parse import parse_ordinance_body
 
 
 # ---------- 등급 도출 ----------
@@ -216,7 +216,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                 f"SELECT mst, body_xml FROM ordinances WHERE mst IN ({qm})", list(msts)):
             if not br["body_xml"]:
                 continue
-            parsed = moleg.parse_ordinance_body(br["body_xml"])
+            parsed = parse_ordinance_body(br["body_xml"])
             if "error" not in parsed:
                 body_articles[br["mst"]] = {
                     a["no"]: a.get("body", "") for a in parsed["articles"] if a.get("no")}
