@@ -135,10 +135,65 @@ def collect_ordinances(conn, org, sborg, verbose=True):
     return items
 
 
+def _changed_labels(conn, law_id, revise_type):
+    """이번 개정에서 바뀐 상위법 조문 라벨 판별.
+
+    반환: (mode, labels)
+      mode='full'    전부개정/제정 → 인용했으면 전부 해당 (labels=None)
+      mode='partial' 일부개정 → 바뀐 조문(조문변경여부=Y) 집합 (labels=set)
+      mode='unknown' 변경 플래그 없음 → 판별불가, 보수적으로 전부 '확인' (labels=None)
+    """
+    if "전부개정" in (revise_type or "") or "제정" in (revise_type or ""):
+        return "full", None
+    labels = {r["label"] for r in conn.execute(
+        "SELECT label FROM law_articles WHERE law_id=? AND changed=1", (law_id,))}
+    return ("partial", labels) if labels else ("unknown", None)
+
+
+def _classify_affected(conn, law_id, mode, changed_labels):
+    """이 법령을 인용한 조례를 '해당/확인/무관'으로 분류(조문 단위 매칭).
+
+    해당  = 바뀐 조문을 인용 (어느 조인지 clauses 로 표시)
+    확인  = 법명만 인용(조 미지정) → 개정 관련 여부 판단 필요
+    무관  = 안 바뀐 조문만 인용 → 제외(알람에서 빠짐)
+    반환: {"affected":[{mst,name,dept,clauses}], "uncertain":[{mst,name,dept}]}
+    """
+    by = {}
+    for r in conn.execute(
+            """SELECT c.mst, c.clause_label, o.name, o.dept
+               FROM citations c JOIN ordinances o ON o.mst = c.mst
+               WHERE c.law_id = ? ORDER BY o.dept, o.name""", (law_id,)):
+        d = by.setdefault(r["mst"], {"mst": r["mst"], "name": r["name"],
+                                     "dept": r["dept"], "clauses": set(), "nameonly": False})
+        cl = (r["clause_label"] or "").strip()
+        if not cl:
+            d["nameonly"] = True
+        else:
+            for lab in cl.split(","):
+                lab = lab.strip()
+                if lab:
+                    d["clauses"].add(lab)
+    affected, uncertain = [], []
+    for d in by.values():
+        base = {"mst": d["mst"], "name": d["name"], "dept": d["dept"]}
+        if mode == "full":
+            affected.append({**base, "clauses": sorted(d["clauses"])})
+        elif mode == "unknown":
+            uncertain.append(base)
+        else:  # partial — 바뀐 조문과 교집합 있으면 해당
+            hit = sorted(d["clauses"] & changed_labels)
+            if hit:
+                affected.append({**base, "clauses": hit})
+            elif d["nameonly"]:
+                uncertain.append(base)
+            # 안 바뀐 조문만 인용 → 무관(제외)
+    return {"affected": affected, "uncertain": uncertain}
+
+
 def detect_law_changes(conn, old_keys):
-    """직전 스냅샷의 버전키(old_keys: {law_id: version_key}) 대비 현재 laws 의 변화를
-    law_changes 에 적재. 공포일자|공포번호가 달라진 법령 = 개정. 영향 조례 수는
-    citations 역추적으로 센다. 반환: 감지된 개정 건수.
+    """직전 스냅샷의 버전키(old_keys: {law_id: version_key}) 대비 바뀐 법령을
+    law_changes 에 적재. 영향 조례는 '바뀐 조문을 인용했는지'까지 따져 정밀 집계한다.
+    반환: 감지된 개정 건수.
 
     첫 베이스라인(old_key 없음)·신규 수집 법령은 '개정'으로 보지 않는다(거짓 대량감지 방지).
     """
@@ -150,31 +205,42 @@ def detect_law_changes(conn, old_keys):
         if not okey or not nkey or okey == nkey:
             continue                      # 베이스라인 없음/신규/동일 → 개정 아님
         k = moleg.law_version_key(r["body_xml"])
-        affected = conn.execute(
-            "SELECT COUNT(DISTINCT mst) FROM citations WHERE law_id=? AND mst IS NOT NULL",
-            (lid,)).fetchone()[0]
+        mode, labels = _changed_labels(conn, lid, k.get("revise_type", ""))
+        cls = _classify_affected(conn, lid, mode, labels)
+        ca = "*" if mode == "full" else ("" if mode == "unknown"
+                                         else ",".join(sorted(labels)))
         conn.execute(
             """INSERT OR REPLACE INTO law_changes
-               (law_id, name, old_key, new_key, new_enforce, revise_type, affected_n, detected_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (law_id, name, old_key, new_key, new_enforce, revise_type,
+                changed_articles, affected_n, uncertain_n, detected_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (lid, r["name"], okey, nkey, k.get("enforce_date", ""),
-             k.get("revise_type", ""), affected, _now()))
+             k.get("revise_type", ""), ca, len(cls["affected"]),
+             len(cls["uncertain"]), _now()))
         changed += 1
     conn.commit()
     return changed
 
 
 def law_changes_report(db_path=db.DEFAULT_DB):
-    """감지된 법령 개정 + 각 개정이 영향 주는 조례(역추적). 영향 많은 순."""
+    """감지된 법령 개정 + 영향 조례(조문 매칭). 해당 많은 순.
+
+    각 항목: {…law_changes 행…, "affected":[{mst,name,dept,clauses}],
+              "uncertain":[{mst,name,dept}]}
+    """
     conn = db.connect(db_path)
     out = []
     for r in conn.execute(
-            "SELECT * FROM law_changes ORDER BY affected_n DESC, name"):
-        ords = [dict(x) for x in conn.execute(
-            """SELECT DISTINCT c.mst, o.name, o.dept
-               FROM citations c JOIN ordinances o ON o.mst = c.mst
-               WHERE c.law_id = ? ORDER BY o.dept, o.name""", (r["law_id"],))]
-        out.append({**dict(r), "ordinances": ords})
+            "SELECT * FROM law_changes ORDER BY affected_n DESC, uncertain_n DESC, name"):
+        ca = r["changed_articles"]
+        if ca == "*":
+            mode, labels = "full", None
+        elif not ca:
+            mode, labels = "unknown", None
+        else:
+            mode, labels = "partial", set(ca.split(","))
+        cls = _classify_affected(conn, r["law_id"], mode, labels)
+        out.append({**dict(r), **cls})
     conn.close()
     return out
 

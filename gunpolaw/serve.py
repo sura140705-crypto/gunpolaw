@@ -363,10 +363,17 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .changes .law{border-top:1px solid #fecaca;padding:9px 0;}
 .changes .law .lname{font-size:13.5px;color:#7f1d1d;font-weight:600;}
 .changes .law .lmeta{font-size:12px;color:#b91c1c;font-weight:400;margin-left:6px;}
-.changes .ords{margin:6px 0 0;display:flex;flex-wrap:wrap;gap:6px;}
+.changes .grp{display:flex;align-items:flex-start;gap:8px;margin:6px 0 0;}
+.changes .lbl{flex:0 0 auto;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;
+              margin-top:2px;white-space:nowrap;}
+.changes .lbl.hit{background:#dc2626;color:#fff;}
+.changes .lbl.unc{background:#fde68a;color:#92400e;}
+.changes .ords{display:flex;flex-wrap:wrap;gap:6px;}
 .changes .ords a{font-size:12.5px;background:#fff;border:1px solid #fecaca;border-radius:7px;
                  padding:3px 9px;color:#991b1b;cursor:pointer;text-decoration:none;}
 .changes .ords a:hover{background:#fee2e2;}
+.changes .ords a .cl{color:#dc2626;font-weight:600;font-size:11px;}
+.changes .none{font-size:12px;color:#9ca3af;margin:6px 0 0;}
 </style></head>
 <body><div class="wrap">
   <h1>자치법규 정비 — 총괄 대시보드</h1>
@@ -418,18 +425,24 @@ async function renderChanges(){
   let ch=[];
   try{ch=await getJSON("/api/changes");}catch(e){ch=[];}
   if(!ch||!ch.length){box.style.display="none";box.innerHTML="";return;}
-  const aff=new Set(); ch.forEach(c=>(c.ordinances||[]).forEach(o=>aff.add(o.mst)));
+  let nAff=0,nUnc=0; ch.forEach(c=>{nAff+=(c.affected||[]).length;nUnc+=(c.uncertain||[]).length;});
+  const chip=o=>`<a data-mst="${esc(o.mst)}" title="${esc(o.dept||"")}">${esc(o.name)}`
+    +(o.clauses&&o.clauses.length?` <span class="cl">${esc(o.clauses.join(","))}</span>`:"")+`</a>`;
   const laws=ch.map(c=>{
-    const ords=(c.ordinances||[]).map(o=>
-      `<a data-mst="${esc(o.mst)}" title="${esc(o.dept||'')}">${esc(o.name)}</a>`).join("")
-      || '<span class="muted">인용 조례 없음</span>';
+    const aff=c.affected||[], unc=c.uncertain||[];
+    const caTxt=c.changed_articles==="*"?"전부개정"
+      :(!c.changed_articles?"바뀐 조문 판별불가":`바뀐 조문 ${esc(c.changed_articles)}`);
+    const affHtml=aff.length?`<div class="grp"><span class="lbl hit">해당 ${aff.length}</span>
+        <div class="ords">${aff.map(chip).join("")}</div></div>`:"";
+    const uncHtml=unc.length?`<div class="grp"><span class="lbl unc">확인 ${unc.length}</span>
+        <div class="ords">${unc.map(chip).join("")}</div></div>`:"";
+    const empty=(!aff.length&&!unc.length)?'<div class="none">바뀐 조문을 인용한 조례 없음(무관)</div>':"";
     return `<div class="law"><span class="lname">「${esc(c.name)}」</span>
-      <span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)}`
-      +` · ${esc(c.old_key)} → ${esc(c.new_key)} · 영향 ${c.affected_n}건</span>
-      <div class="ords">${ords}</div></div>`;
+      <span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)} · ${caTxt}</span>
+      ${affHtml}${uncHtml}${empty}</div>`;
   }).join("");
   box.innerHTML=`<div class="chd"><span class="badge">🔔 ${ch.length}</span>
-     법령 개정 감지 — 영향 조례 ${aff.size}건
+     법령 개정 감지 — 해당 조례 ${nAff}건 · 확인 ${nUnc}건
      <span class="muted" style="font-weight:400">· 조례 클릭 시 상세</span>
      <span class="arr">▸</span></div>
      <div class="clist">${laws}</div>`;

@@ -52,14 +52,16 @@ CREATE TABLE IF NOT EXISTS laws (
 -- 법령 개정 델타 : 전체 재수집(주1회) 시 직전 스냅샷 대비 버전키가 바뀐 법령.
 -- 영향 조례는 citations(law_id→mst) 역추적으로 질의 시점에 구한다.
 CREATE TABLE IF NOT EXISTS law_changes (
-    law_id      TEXT PRIMARY KEY,
-    name        TEXT,
-    old_key     TEXT,              -- 직전 공포일자|공포번호
-    new_key     TEXT,              -- 현재 공포일자|공포번호
-    new_enforce TEXT,              -- 새 시행일자(개정 효력일)
-    revise_type TEXT,              -- 제개정구분(일부개정/전부개정 등)
-    affected_n  INTEGER,           -- 이 법령을 인용하는 조례 수(역추적)
-    detected_at TEXT
+    law_id          TEXT PRIMARY KEY,
+    name            TEXT,
+    old_key         TEXT,          -- 직전 공포일자|공포번호
+    new_key         TEXT,          -- 현재 공포일자|공포번호
+    new_enforce     TEXT,          -- 새 시행일자(개정 효력일)
+    revise_type     TEXT,          -- 제개정구분(일부개정/전부개정 등)
+    changed_articles TEXT,         -- 바뀐 조문 라벨(콤마). '*'=전부개정, ''=판별불가
+    affected_n      INTEGER,       -- '해당'(바뀐 조문을 인용한) 조례 수
+    uncertain_n     INTEGER,       -- '확인필요'(법명only 인용) 조례 수
+    detected_at     TEXT
 );
 
 -- 법령 조문 단위(변경 판정의 핵심) : 법령 본문 파싱
@@ -160,6 +162,12 @@ def init_db(db_path=DEFAULT_DB):
     lcols = [r[1] for r in conn.execute("PRAGMA table_info(laws)")]
     if "version_key" not in lcols:
         conn.execute("ALTER TABLE laws ADD COLUMN version_key TEXT")
+    if "law_changes" in [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")]:
+        chcols = [r[1] for r in conn.execute("PRAGMA table_info(law_changes)")]
+        for name, decl in (("changed_articles", "TEXT"), ("uncertain_n", "INTEGER")):
+            if name not in chcols:
+                conn.execute(f"ALTER TABLE law_changes ADD COLUMN {name} {decl}")
     ccols = [r[1] for r in conn.execute("PRAGMA table_info(citations)")]
     for name, decl in (("span_start", "INTEGER"), ("span_end", "INTEGER"),
                        ("cite_naked", "INTEGER"), ("ord_seq", "INTEGER"),

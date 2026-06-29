@@ -53,12 +53,18 @@ def main(argv):
         if not rows:
             print("감지된 법령 개정 없음(전체 재수집 후 직전 스냅샷 대비 변화 기준).")
             return 0
-        print(f"=== 법령 개정 감지 {len(rows)}건 (영향 조례 역추적) ===")
+        print(f"=== 법령 개정 감지 {len(rows)}건 (바뀐 조문 ↔ 인용 조문 매칭) ===")
         for r in rows:
+            ca = r["changed_articles"]
+            chg = "전부개정" if ca == "*" else ("판별불가" if not ca else f"바뀐 조문 {ca}")
             print(f"\n「{r['name']}」 {r['old_key']} → {r['new_key']} "
-                  f"[{r['revise_type']}, 시행 {r['new_enforce']}]  영향 조례 {r['affected_n']}건")
-            for o in r["ordinances"]:
-                print(f"    · {o['name']}  ({o['dept'] or '미지정'})")
+                  f"[{r['revise_type']}, 시행 {r['new_enforce']}] · {chg}")
+            print(f"   해당 {len(r['affected'])}건 · 확인필요 {len(r['uncertain'])}건")
+            for o in r["affected"]:
+                cl = ", ".join(o["clauses"]) or "(법령단위)"
+                print(f"    [해당] {o['name']} ({o['dept'] or '미지정'}) ← 인용 {cl}")
+            for o in r["uncertain"]:
+                print(f"    [확인] {o['name']} ({o['dept'] or '미지정'}) ← 법명만 인용")
         return 0
 
     if argv[0] == "--serve":
