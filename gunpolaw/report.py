@@ -496,7 +496,7 @@ def _ord_block(o, collapsible=False):
         f'{"".join(secs_html)}</div>')
 
 
-def render_html(model, generated_at="", title="군포시 자치법규 정비 권고서"):
+def render_html(model, generated_at="", title="자치법규 정비 권고서"):
     s = model["summary"]
     cards = (
         _card(s, "mechanical", "기계적 개정") + _card(s, "review", "실질 검토") +
@@ -560,7 +560,13 @@ def write_report(db_path=db.DEFAULT_DB, out_path="개정권고서.html", generat
     """권고서 HTML 파일 생성 → out_path 반환."""
     generated_at = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M")
     model = build_model(db_path)
-    htmltext = render_html(model, generated_at=generated_at)
+    # 제목의 지자체명은 배치 스냅샷(batch_meta)에서 — 타 시군 재사용 시 자동 반영
+    conn = db.connect(db_path)
+    mrow = conn.execute("SELECT region_name FROM batch_meta WHERE id=1").fetchone()
+    conn.close()
+    region = (mrow["region_name"] if mrow and mrow["region_name"] else "").strip()
+    title = f"{region} 자치법규 정비 권고서".strip()
+    htmltext = render_html(model, generated_at=generated_at, title=title)
     with open(out_path, "w", encoding="utf-8") as fp:
         fp.write(htmltext)
     return out_path, model["summary"]

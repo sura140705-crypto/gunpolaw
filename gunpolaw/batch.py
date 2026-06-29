@@ -10,6 +10,7 @@ from datetime import datetime
 
 from . import db
 from . import moleg
+from . import config
 from .pipeline import analyze_ordinance, LiveSource
 
 _LABEL_RE = re.compile(r"제(\d+)조(?:의(\d+))?")
@@ -22,11 +23,8 @@ def _label_nums(label):
         return (0, 0)
     return (int(m.group(1)), int(m.group(2) or 0))
 
-# 군포 기본값. 목록(ordin)은 광역 org + 시군 sborg, lnkOrg는 sborg를 org로 사용.
-GUNPO_ORG = "6410000"     # 경기도
-GUNPO_SBORG = "4020000"   # 군포시
-# 전수 대상 자치법규 종류 (훈령/예규/고시는 군포에 0건이지만 포함)
-KND_CODES = ["30001", "30002", "30003", "30004", "30010", "30011"]
+# 지자체 기본값·종류코드는 config(환경변수/JSON)로 — 타 시군은 코드 수정 없이 교체.
+# 목록(ordin)은 광역 org + 시군 sborg, lnkOrg는 sborg를 org로 사용.
 
 
 def _now():
@@ -102,10 +100,11 @@ def persist_result(conn, mst, res, org="", update_ordinance=True):
              r.get("ord_seq", 0), r["type"]))
 
 
-def collect_ordinances(conn, org, sborg, verbose=True):
+def collect_ordinances(conn, org, sborg, verbose=True, knd_codes=None):
     """목록 API(target=ordin)로 자치법규 전수 수집 → ordinances 테이블 적재."""
+    knd_codes = knd_codes or config.DEFAULTS["knd_codes"]
     items, by_knd = [], {}
-    for knd in KND_CODES:
+    for knd in knd_codes:
         first = moleg.search_ordinances(org, sborg, knd, page=1, display=100)
         total = first["totalCount"]
         if total == 0:
@@ -245,21 +244,29 @@ def law_changes_report(db_path=db.DEFAULT_DB):
     return out
 
 
-def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
+def run_batch(org=None, sborg=None, limit=None,
               db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False,
-              region_name="군포시", incremental=False):
-    """전수 일괄 수집·분석.
+              region_name=None, incremental=False, knd_codes=None):
+    """전수 일괄 수집·분석. org/sborg/region_name/knd_codes 미지정 시 config(환경변수/JSON).
 
     incremental=False(기본): 라이브 전건 — 모든 법령 본문을 새로 받아 개정까지 재검출(주1회).
     incremental=True: DB 우선 — 이미 영속된 법령/조례/당시본은 재사용하고, 새로 인용된
         미수집 법령·신규 조례·미저장 당시본만 라이브로 받는다(빠른 증분 갱신). 단 이미 가진
         본문은 다시 받지 않으므로 '법령 개정 재검출'은 전체 재수집(incremental=False)의 몫.
     """
+    cfg = config.load()
+    org = org or cfg["org"]
+    sborg = sborg or cfg["sborg"]
+    region_name = region_name or cfg["region_name"]
+    knd_codes = knd_codes or cfg["knd_codes"]
+
     db.init_db(db_path)
     conn = db.connect(db_path)
+    if verbose:
+        print(f"대상: {region_name} (org={org}, sborg={sborg})")
 
     # 1) 전수 수집(목록 API)
-    items = collect_ordinances(conn, org, sborg, verbose)
+    items = collect_ordinances(conn, org, sborg, verbose, knd_codes=knd_codes)
     msts = [(it["mst"], it["name"]) for it in items]
 
     # 2) lnkOrg(시군 코드) — 법령ID 보강 사전 + 공식 연계 저장

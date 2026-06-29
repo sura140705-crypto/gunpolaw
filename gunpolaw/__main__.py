@@ -3,15 +3,14 @@
 
     set LAW_OC_KEY=발급키
     python -m gunpolaw <MST>              # 조례 1건 분석
-    python -m gunpolaw --batch [org] [N]  # 일괄(기본 org=4020000 군포), N=건수제한
-    python -m gunpolaw --report [org]     # 저장된 findings 집계
+    python -m gunpolaw --batch [N]        # 전수 일괄(N=건수제한), 대상은 config(환경변수/JSON)
+    python -m gunpolaw --report           # 저장된 findings 집계
+    (대상 지자체 교체: LAW_ORG/LAW_SBORG/LAW_REGION 환경변수 또는 region.json — gunpolaw.config)
 """
 import sys
 
 from .pipeline import analyze_ordinance
 from .checks import SEV_LABEL
-
-GUNPO_ORG = "4020000"
 
 
 def main(argv):
