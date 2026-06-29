@@ -382,3 +382,45 @@ def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):
     for r in rows:
         print(f"  {r['n']:>3}  {r['name']}")
     conn.close()
+
+
+# ---------- 공유용 배포 번들 ----------
+def export_share(db_path=db.DEFAULT_DB, out_zip="gunpolaw_테스트.zip", verbose=True):
+    """조원 테스트용 올인원 zip 생성 — 코드 + 슬림 DB + 안내문.
+
+    대시보드(serve/report)는 ordinances·citations·findings·batch_meta·law_changes 만
+    읽으므로, --reparse 재분석 전용인 laws/law_versions/law_articles body_xml(파일의
+    대부분)을 비운 슬림 DB(약 14MB, gunpolaw.db 이름으로 동봉)면 화면은 100% 동일.
+    조원은 zip 하나만 풀어 `python -m gunpolaw --serve` 하면 된다(키·네트워크 불요).
+    """
+    import os
+    import glob
+    import shutil
+    import zipfile
+
+    pkg = os.path.dirname(os.path.abspath(__file__))      # gunpolaw/
+    root = os.path.dirname(pkg)
+    slim = os.path.join(root, "_share_slim.db")
+    shutil.copy(db_path, slim)
+    conn = db.connect(slim)
+    for t in ("laws", "law_versions", "law_articles"):    # 보기에 안 쓰는 원본 비움
+        conn.execute(f"DELETE FROM {t}")
+    conn.commit()
+    conn.execute("VACUUM")
+    conn.close()
+
+    out = out_zip if os.path.isabs(out_zip) else os.path.join(root, out_zip)
+    readme = os.path.join(root, "테스트_공유_안내.md")
+    try:
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in sorted(glob.glob(os.path.join(pkg, "*.py"))):
+                z.write(f, "gunpolaw/" + os.path.basename(f))
+            z.write(slim, "gunpolaw.db")
+            if os.path.exists(readme):
+                z.write(readme, os.path.basename(readme))
+    finally:
+        os.remove(slim)
+    mb = os.path.getsize(out) / 1048576
+    if verbose:
+        print(f"공유 zip 생성 → {out} ({mb:.1f}MB)")
+    return {"zip": out, "size_mb": round(mb, 1)}

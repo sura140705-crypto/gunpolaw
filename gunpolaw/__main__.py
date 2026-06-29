@@ -25,6 +25,7 @@ def main(argv):
         print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(3단계)")
         print("  python -m gunpolaw --serve [포트]       총괄 대시보드 서빙(읽기전용, 기본 8765)")
         print("  python -m gunpolaw --reparse            영속 body_xml로 재파싱(라이브 API 0)")
+        print("  python -m gunpolaw --export-share [zip] 조원 공유용 올인원 zip(코드+슬림DB)")
         print("  (배치/권고는 LAW_OC_KEY 필요 · --serve/--reparse 는 DB만 쓰므로 키 불요)")
         return 1
 
@@ -53,6 +54,14 @@ def main(argv):
     if argv[0] == "--report":
         from .batch import report
         report()
+        return 0
+
+    if argv[0] == "--export-share":
+        from .batch import export_share
+        rest = [a for a in argv[1:] if not a.startswith("--")]
+        r = export_share(out_zip=rest[0] if rest else "gunpolaw_테스트.zip", verbose=False)
+        print(f"공유 zip 생성 → {r['zip']} ({r['size_mb']}MB)")
+        print("  조원에게 이 파일 하나만 전달 → 풀고 `python -m gunpolaw --serve`")
         return 0
 
     if argv[0] == "--changes":
