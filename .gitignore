@@ -55,3 +55,4 @@ inspect_*.txt
 # 동료 배포용 번들 (보낼 때만 생성)
 gunpolaw_test.zip
 *.zip
+gunpolaw_share.db
