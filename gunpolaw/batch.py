@@ -10,7 +10,7 @@ from datetime import datetime
 
 from . import db
 from . import moleg
-from .pipeline import analyze_ordinance
+from .pipeline import analyze_ordinance, LiveSource
 
 _LABEL_RE = re.compile(r"제(\d+)조(?:의(\d+))?")
 
@@ -115,10 +115,16 @@ def collect_ordinances(conn, org, sborg, verbose=True):
         by_knd[knd] = len(got)
         items += got
     for it in items:
+        # 목록 메타만 갱신하고 기존 body_xml/dept/phone/fetched_at 은 보존(ON CONFLICT).
+        # INSERT OR REPLACE 는 행을 통째로 갈아 body_xml 을 날려 증분 재수집을 무력화했다.
         conn.execute(
-            """INSERT OR REPLACE INTO ordinances
+            """INSERT INTO ordinances
                (mst, lid, name, knd, org, sborg, promulg_date, enforce_date)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(mst) DO UPDATE SET
+                   lid=excluded.lid, name=excluded.name, knd=excluded.knd,
+                   org=excluded.org, sborg=excluded.sborg,
+                   promulg_date=excluded.promulg_date, enforce_date=excluded.enforce_date""",
             (it["mst"], it["lid"], it["name"], it["knd"], org, sborg,
              it["promulg_date"], it["enforce_date"]))
     conn.commit()
@@ -129,7 +135,14 @@ def collect_ordinances(conn, org, sborg, verbose=True):
 
 def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
               db_path=db.DEFAULT_DB, sleep=0.1, verbose=True, deep=False,
-              region_name="군포시"):
+              region_name="군포시", incremental=False):
+    """전수 일괄 수집·분석.
+
+    incremental=False(기본): 라이브 전건 — 모든 법령 본문을 새로 받아 개정까지 재검출(주1회).
+    incremental=True: DB 우선 — 이미 영속된 법령/조례/당시본은 재사용하고, 새로 인용된
+        미수집 법령·신규 조례·미저장 당시본만 라이브로 받는다(빠른 증분 갱신). 단 이미 가진
+        본문은 다시 받지 않으므로 '법령 개정 재검출'은 전체 재수집(incremental=False)의 몫.
+    """
     db.init_db(db_path)
     conn = db.connect(db_path)
 
@@ -149,16 +162,28 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
 
     if limit:
         msts = msts[:limit]
-    if verbose:
-        print(f"분석 대상 {len(msts)}건 (법령ID 보강사전 {len(link_index)}개)\n")
 
-    # 2) findings·법령본문 스냅샷 재작성(현행 기준으로 갈아끼움)
-    conn.execute("DELETE FROM findings")
-    conn.execute("DELETE FROM laws")
-    conn.execute("DELETE FROM law_articles")
-    conn.execute("DELETE FROM law_versions")
-    conn.execute("DELETE FROM citations")
+    # 본문 출처 + 재작성 범위 분기
+    if incremental:
+        from .reparse import DBFirstSource   # 지연 import(reparse→batch 순환 회피)
+        src = DBFirstSource(conn)
+        # 원본 본문(laws/law_versions/ordinances.body_xml)은 보존 — 파생물만 비운다.
+        conn.execute("DELETE FROM findings")
+        conn.execute("DELETE FROM citations")
+        conn.execute("DELETE FROM law_articles")
+    else:
+        src = LiveSource
+        # 전체 재수집: findings·법령본문 스냅샷을 현행 기준으로 통째 갈아끼움
+        conn.execute("DELETE FROM findings")
+        conn.execute("DELETE FROM laws")
+        conn.execute("DELETE FROM law_articles")
+        conn.execute("DELETE FROM law_versions")
+        conn.execute("DELETE FROM citations")
     conn.commit()
+    if verbose:
+        mode = "증분(DB우선·신규만 수집)" if incremental else "전체(라이브 전건)"
+        print(f"분석 대상 {len(msts)}건 · 모드={mode} "
+              f"(법령ID 보강사전 {len(link_index)}개)\n")
 
     law_cache, version_cache, old_cache, agg = {}, {}, {}, {}
     name_cache = {}
@@ -166,7 +191,7 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
     for i, (mst, name) in enumerate(msts, 1):
         res = analyze_ordinance(mst, link_index, law_cache,
                                 deep=deep, version_cache=version_cache, old_cache=old_cache,
-                                law_name_cache=name_cache)
+                                src=src, law_name_cache=name_cache)
         if "error" in res:
             errors += 1
             if verbose:
@@ -190,11 +215,16 @@ def run_batch(org=GUNPO_ORG, sborg=GUNPO_SBORG, limit=None,
            (id, org, sborg, region_name, batch_date, ordinances_n, laws_n, findings_n, deep, status)
            VALUES (1,?,?,?,?,?,?,?,?,?)""",
         (org, sborg, region_name, _now(), len(msts), laws_n, findings_n,
-         1 if deep else 0, "ok"))
+         1 if deep else 0, "incremental" if incremental else "ok"))
     conn.commit()
     conn.close()
+    misses = getattr(src, "misses", None)
+    if verbose and misses:
+        print(f"신규 수집(라이브): 법령 {misses['law']} · 당시본 {misses['version']} · "
+              f"조례 {misses['ordinance']} (나머지는 DB 재사용)")
     return {"processed": len(msts), "errors": errors, "agg": agg, "db": str(db_path),
-            "laws": laws_n, "findings": findings_n, "batch_date": _now()}
+            "laws": laws_n, "findings": findings_n, "batch_date": _now(),
+            "incremental": incremental, "misses": misses}
 
 
 def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):

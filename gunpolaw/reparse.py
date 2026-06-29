@@ -10,7 +10,7 @@ DB의 원본 XML(ordinances.body_xml / laws.body_xml / law_versions.body_xml)을
 """
 from . import db
 from . import moleg
-from .pipeline import analyze_ordinance
+from .pipeline import analyze_ordinance, LiveSource
 from .batch import persist_result, _now
 
 
@@ -77,6 +77,56 @@ class _DBSource:
                               (str(mst),)).fetchone()
         xml = (r["body_xml"] if r else "") or ""
         return moleg.parse_law_articles(xml), xml
+
+
+class DBFirstSource:
+    """증분 수집 출처 — 영속 body_xml 우선, 미스면 LiveSource(API)로 받아 폴백.
+
+    이미 영속된 법령 현행본·당시본·조례 본문은 API 0회로 재사용하고, 새로 인용된
+    미수집 법령·신규 조례·미저장 당시본만 라이브로 받는다. 폴백으로 받은 본문은
+    analyze_ordinance의 fetched_laws/fetched_versions에 실려 persist_result가 DB에
+    영속 → 다음 실행부터 재사용. (이미 가진 본문은 다시 받지 않으므로 '법령 개정
+    재검출'은 전체 재수집 run_batch(incremental=False)의 몫이다.)
+    """
+
+    def __init__(self, conn, live=None):
+        self.conn = conn
+        self._db = _DBSource(conn)
+        self._live = live or LiveSource
+        self.misses = {"ordinance": 0, "law": 0, "version": 0}
+
+    def get_ordinance_body(self, mst):
+        r = self._db.get_ordinance_body(mst)
+        if "error" not in r:
+            return r
+        self.misses["ordinance"] += 1
+        return self._live.get_ordinance_body(mst)
+
+    def resolve_law_id(self, name):
+        # 법령ID는 불변 — DB 인덱스(직전 해소 결과)를 신뢰, 미수록 신규명만 라이브 검색.
+        return self._db.resolve_law_id(name) or self._live.resolve_law_id(name)
+
+    def get_law_body(self, law_id):
+        xml = self._db.get_law_body(law_id)
+        if xml:
+            return xml
+        self.misses["law"] += 1
+        return self._live.get_law_body(law_id)
+
+    def list_versions(self, law_name, law_id=None):
+        # 적재된 당시본이 하나라도 있으면 그걸로 as_of(reparse와 동일 동작). 전무한
+        # 신규 법령만 라이브로 전체 버전목록을 받는다.
+        vs = self._db.list_versions(law_name, law_id)
+        if vs:
+            return vs
+        return self._live.list_versions(law_name, law_id)
+
+    def body_with_xml_by_mst(self, mst):
+        arts, xml = self._db.body_with_xml_by_mst(mst)
+        if xml:
+            return arts, xml
+        self.misses["version"] += 1
+        return self._live.body_with_xml_by_mst(mst)
 
 
 def reparse_all(db_path=db.DEFAULT_DB, deep=None, verbose=True):
