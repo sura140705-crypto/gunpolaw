@@ -350,11 +350,29 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .artsec{scroll-margin-top:8px;}
 .flash{animation:flash 1.4s ease;}
 @keyframes flash{0%{background:#fde68a;}70%{background:#fef3c7;}100%{background:transparent;}}
+/* 법령 개정 알림(상위법 개정 → 영향 조례 역추적) */
+.changes{margin:0 0 20px;border:1px solid #fca5a5;background:#fef2f2;border-radius:10px;overflow:hidden;}
+.changes .chd{padding:11px 15px;font-size:14px;color:#991b1b;font-weight:600;cursor:pointer;
+              display:flex;align-items:center;gap:8px;}
+.changes .chd .badge{background:#dc2626;color:#fff;font-size:12px;border-radius:999px;
+                     padding:1px 9px;font-weight:700;}
+.changes .chd .arr{margin-left:auto;color:#dc2626;transition:transform .15s;}
+.changes.open .chd .arr{transform:rotate(90deg);}
+.changes .clist{padding:0 15px 12px;display:none;}
+.changes.open .clist{display:block;}
+.changes .law{border-top:1px solid #fecaca;padding:9px 0;}
+.changes .law .lname{font-size:13.5px;color:#7f1d1d;font-weight:600;}
+.changes .law .lmeta{font-size:12px;color:#b91c1c;font-weight:400;margin-left:6px;}
+.changes .ords{margin:6px 0 0;display:flex;flex-wrap:wrap;gap:6px;}
+.changes .ords a{font-size:12.5px;background:#fff;border:1px solid #fecaca;border-radius:7px;
+                 padding:3px 9px;color:#991b1b;cursor:pointer;text-decoration:none;}
+.changes .ords a:hover{background:#fee2e2;}
 </style></head>
 <body><div class="wrap">
   <h1>자치법규 정비 — 총괄 대시보드</h1>
   <div class="banner" id="banner">불러오는 중…</div>
   <div class="cards" id="cards"></div>
+  <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
     <label><input type="checkbox" id="actChk"> 정비 대상만</label>
@@ -393,6 +411,33 @@ function renderBanner(){
     `<b>${esc(b.region_name||"—")}</b> · 스냅샷 기준일 <b>${esc((b.batch_date||"").slice(0,10)||"—")}</b>`
     +` · 조례 ${b.ordinances_n||OV.totals.ordinances} · 법령 ${b.laws_n||"—"} · 판정 ${b.findings_n||"—"}건`
     +` · 담당과 ${OV.totals.depts}개 · <span class="muted">읽기전용(라이브 API 0)</span>`;
+}
+async function renderChanges(){
+  // 상위법 개정 → 영향 조례 역추적 알림. 개정 0건이면 숨김.
+  const box=document.getElementById("changes");
+  let ch=[];
+  try{ch=await getJSON("/api/changes");}catch(e){ch=[];}
+  if(!ch||!ch.length){box.style.display="none";box.innerHTML="";return;}
+  const aff=new Set(); ch.forEach(c=>(c.ordinances||[]).forEach(o=>aff.add(o.mst)));
+  const laws=ch.map(c=>{
+    const ords=(c.ordinances||[]).map(o=>
+      `<a data-mst="${esc(o.mst)}" title="${esc(o.dept||'')}">${esc(o.name)}</a>`).join("")
+      || '<span class="muted">인용 조례 없음</span>';
+    return `<div class="law"><span class="lname">「${esc(c.name)}」</span>
+      <span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)}`
+      +` · ${esc(c.old_key)} → ${esc(c.new_key)} · 영향 ${c.affected_n}건</span>
+      <div class="ords">${ords}</div></div>`;
+  }).join("");
+  box.innerHTML=`<div class="chd"><span class="badge">🔔 ${ch.length}</span>
+     법령 개정 감지 — 영향 조례 ${aff.size}건
+     <span class="muted" style="font-weight:400">· 조례 클릭 시 상세</span>
+     <span class="arr">▸</span></div>
+     <div class="clist">${laws}</div>`;
+  box.style.display="block";
+  box.classList.add("open");
+  box.querySelector(".chd").onclick=()=>box.classList.toggle("open");
+  box.querySelectorAll(".ords a[data-mst]").forEach(a=>
+    a.onclick=()=>selectOrd(a.dataset.mst));
 }
 function fillDeptSelect(){
   const sel=document.getElementById("deptSel");
@@ -511,7 +556,7 @@ async function refresh(){
 async function init(){
   OV=await getJSON("/api/overview");
   GO.push(...OV.grade_order); Object.assign(GM,OV.grade_meta);
-  renderBanner(); renderCards(); fillDeptSelect();
+  renderBanner(); renderCards(); fillDeptSelect(); renderChanges();
   document.getElementById("deptSel").onchange=e=>selectDept(e.target.value);
   document.getElementById("actChk").onchange=()=>{if(curDept)renderOrdList();};
   refresh();
