@@ -23,7 +23,8 @@ def main(argv):
         print("  python -m gunpolaw --report             저장 결과 집계")
         print("  python -m gunpolaw --changes [--all]    법령 개정 → 영향 조례(역추적, 미검토만/전체)")
         print("  python -m gunpolaw --ack <law_id>        개정 검토완료 표시(--unack=해제)")
-        print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(3단계)")
+        print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(전체)")
+        print("  python -m gunpolaw --recommend --mst <MST> [경로]  조례 1건 권고서(담당자 확인용)")
         print("  python -m gunpolaw --serve [포트]       총괄 대시보드 서빙(읽기전용, 기본 8765)")
         print("  python -m gunpolaw --reparse            영속 body_xml로 재파싱(라이브 API 0)")
         print("  python -m gunpolaw --export-share [zip] 조원 공유용 올인원 zip(코드+슬림DB)")
@@ -118,12 +119,21 @@ def main(argv):
         return 0
 
     if argv[0] == "--recommend":
-        from .report import write_report, GRADE_META
-        rest = [a for a in argv[1:] if not a.startswith("--")]
-        out = rest[0] if rest else "개정권고서.html"
-        path, s = write_report(out_path=out)
-        print(f"개정 권고서 생성 → {path}")
-        print(f"  정비 대상 {s['ordinances_action']}/{s['ordinances_total']}개 조례")
+        from .report import write_report, write_ordinance_report, GRADE_META
+        args = argv[1:]
+        mst = None
+        if "--mst" in args:                       # 조례 1건만 — 담당자 확인·배포용
+            i = args.index("--mst")
+            mst = args[i + 1] if i + 1 < len(args) else None
+            args = args[:i] + args[i + 2:]
+        rest = [a for a in args if not a.startswith("--")]
+        if mst:
+            path, s, name = write_ordinance_report(mst, out_path=(rest[0] if rest else None))
+            print(f"조례 권고서 생성 → {path}  (「{name}」, 인용 전건 분석)")
+        else:
+            path, s = write_report(out_path=(rest[0] if rest else "개정권고서.html"))
+            print(f"개정 권고서 생성 → {path}")
+            print(f"  정비 대상 {s['ordinances_action']}/{s['ordinances_total']}개 조례")
         for k in ("mechanical", "review", "check", "format", "current"):
             m = GRADE_META[k]
             print(f"  {m['emoji']} {m['label']:<7}: {s[k]}")

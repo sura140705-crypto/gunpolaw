@@ -573,6 +573,23 @@ def model_to_csv(model, dept=""):
     return "﻿" + buf.getvalue()
 
 
+def write_ordinance_report(mst, db_path=db.DEFAULT_DB, out_path=None, generated_at=None):
+    """조례 1건 분석·정비 권고 HTML 파일 생성(담당자 확인·배포용). 현행 인용까지 포함.
+
+    반환: (out_path, summary, 조례명).
+    """
+    generated_at = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M")
+    model = build_model(db_path, mst=mst, include_current=True)
+    name = model["ordinances"][0]["name"] if model["ordinances"] else str(mst)
+    safe = re.sub(r"[\\/:*?\"<>|]", "_", name)        # 파일명 금지문자 치환
+    out_path = out_path or f"{safe}_정비권고.html"
+    htmltext = render_html(model, generated_at=generated_at,
+                           title=f"{name} — 정비 권고(분석 결과)")
+    with open(out_path, "w", encoding="utf-8") as fp:
+        fp.write(htmltext)
+    return out_path, model["summary"], name
+
+
 def write_report(db_path=db.DEFAULT_DB, out_path="개정권고서.html", generated_at=None):
     """권고서 HTML 파일 생성 → out_path 반환."""
     generated_at = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M")

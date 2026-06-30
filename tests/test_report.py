@@ -205,6 +205,32 @@ def test_model_to_csv():
     assert "2019-01-01" in lines[1] and "2021-01-01" in lines[1]   # 기준일
 
 
+def test_write_ordinance_report():
+    """조례 1건 권고서 — 현행(변경 없음)까지 포함해 '인용 전건 분석'을 보여준다."""
+    import tempfile
+    from gunpolaw import db
+    from gunpolaw.report import write_ordinance_report
+    fd, path = tempfile.mkstemp(suffix=".db"); os.close(fd)
+    db.init_db(path)
+    conn = db.connect(path)
+    conn.execute("INSERT INTO ordinances(mst,name,dept,enforce_date) VALUES('7','가 조례','기획과','20200101')")
+    conn.execute("INSERT INTO findings(mst,law_name,clause_label,severity,change_type,detail,ord_clause,ord_enforce,clause_enforce)"
+                 " VALUES('7','건축법','제2조','review','내용변경','d','제3조','20200101','20210101')")
+    conn.execute("INSERT INTO findings(mst,law_name,clause_label,severity,change_type,detail,ord_clause,ord_enforce,clause_enforce)"
+                 " VALUES('7','민법','제1조','current','동일','d','제4조','20200101','20100101')")
+    conn.commit(); conn.close()
+
+    fd2, out = tempfile.mkstemp(suffix=".html"); os.close(fd2)
+    rp, summary, name = write_ordinance_report("7", db_path=path, out_path=out, generated_at="2026-06-30")
+    assert name == "가 조례"
+    h = open(out, encoding="utf-8").read()
+    assert h.startswith("<!DOCTYPE html>")
+    assert "가 조례" in h and "건축법" in h
+    assert "변경 없음" in h            # 현행 인용도 '검토 완료'로 노출(전건 분석)
+    assert summary["review"] == 1 and summary["current"] == 1
+    os.unlink(path); os.unlink(out)
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

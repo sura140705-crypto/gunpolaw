@@ -282,6 +282,11 @@ class _Handler(BaseHTTPRequestHandler):
                 dept = (q.get("dept") or [""])[0]
                 fmt = (q.get("format") or ["html"])[0]
                 return self._dept_report(dept, fmt)
+            if path == "/api/ordinance_report":
+                q = parse_qs(u.query)
+                mst = (q.get("mst") or [""])[0]
+                fmt = (q.get("format") or ["html"])[0]
+                return self._ordinance_report(mst, fmt)
             return self._json({"error": "not found", "path": path}, status=404)
         except Exception as e:  # 서빙은 죽지 않게 — 오류도 JSON으로
             return self._json({"error": type(e).__name__, "detail": str(e)},
@@ -323,6 +328,21 @@ class _Handler(BaseHTTPRequestHandler):
                 model_to_csv(model, dept=dept), ctype="text/csv; charset=utf-8",
                 headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fn}"})
         htmltext = render_html(model, title=f"{dept} 자치법규 정비 권고")
+        return self._send(htmltext, ctype="text/html; charset=utf-8")
+
+    def _ordinance_report(self, mst, fmt):
+        """조례 1건 분석·정비 권고(담당자 확인용). 현행(변경 없음)까지 포함해 '인용 전건을
+        검토했고 어떻게 판정했는지'를 통째로 보여준다 — 로직을 사람이 눈으로 확인."""
+        if not mst:
+            return self._json({"error": "mst 필요"}, status=400)
+        model = build_model(self.db_path, mst=mst, include_current=True)
+        name = model["ordinances"][0]["name"] if model["ordinances"] else mst
+        if fmt == "csv":
+            fn = quote(f"{name}_정비권고.csv")
+            return self._send(
+                model_to_csv(model), ctype="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fn}"})
+        htmltext = render_html(model, title=f"{name} — 정비 권고(분석 결과)")
         return self._send(htmltext, ctype="text/html; charset=utf-8")
 
     do_HEAD = do_GET
@@ -646,6 +666,8 @@ async function selectOrd(mst){
   const right=r.found?r.html:`<div class="empty">정비 항목이 없습니다(현행 유지).</div>`;
   const dp=document.getElementById("detailPanel");
   dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">← 목록</button>
+     <a class="btn" style="margin-left:8px;text-decoration:none" target="_blank"
+        href="/api/ordinance_report?mst=${encodeURIComponent(mst)}&format=html">📄 분석 권고서(인쇄용)</a>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="dsplit">
        <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">상위법령 「」</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례(클릭 시 정보)</span></div>${left}</div>
