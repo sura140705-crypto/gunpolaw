@@ -13,6 +13,7 @@ legacy file1.py의 약점 2가지를 교정:
 import re
 import unicodedata
 
+from . import config
 from .clauses import tokenize_clauses
 
 # ---------- 조항 표현 (범위/병렬은 tokenize_clauses가 펼침) ----------
@@ -61,11 +62,9 @@ _JOSA_BEFORE_ALIAS = set("는은를을에")
 # 분류
 GENERIC_NAMES = {"법령", "다른 법령", "법령이나 조례",
                  "법령이나 다른 조례", "법령 등"}
-LOCAL_PREFIX = (
-    "군포시", "경기도", "안양시", "의왕시", "수원시", "성남시", "안산시",
-    "서울특별시", "부산광역시", "인천광역시", "대구광역시",
-    "광주광역시", "대전광역시", "울산광역시", "세종특별자치시",
-)
+# 자치법규 인식 접두어 — 타 시군 재사용 위해 config(환경변수/region.json)에서 주입.
+# 모듈 로드 1회 산정(수집 CLI는 실행 전 env 설정). 기본값/우선순위는 config.load 참조.
+LOCAL_PREFIX = tuple(config.load()["local_prefix"])
 SELF_REF_RE = re.compile(r'이\s*조례|이\s*규칙')
 
 

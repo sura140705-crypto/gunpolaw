@@ -204,6 +204,38 @@ def test_bracketed_citation_not_marked_naked():
     assert g["민법"]["naked_any"] is False and g["민법"]["naked_only"] is False
 
 
+def test_local_prefix_from_config_region_autoincluded():
+    """자치법규 접두어는 config에서 오고, 대상 지자체(region_name)는 자동 포함된다."""
+    from gunpolaw import config
+    cfg = config.load()
+    assert cfg["region_name"] in cfg["local_prefix"], cfg["local_prefix"]
+
+
+def test_local_prefix_env_override():
+    """LAW_LOCAL_PREFIX(쉼표구분)로 교체 + region_name 자동 선두 포함."""
+    from gunpolaw import config
+    saved = {k: os.environ.get(k) for k in ("LAW_REGION", "LAW_LOCAL_PREFIX")}
+    try:
+        os.environ["LAW_REGION"] = "용인시"
+        os.environ["LAW_LOCAL_PREFIX"] = "경기도, 성남시 ,"   # 공백·빈토큰 섞임
+        cfg = config.load()
+        assert cfg["local_prefix"] == ["용인시", "경기도", "성남시"], cfg["local_prefix"]
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_classify_uses_local_prefix():
+    """기본 설정에서 대상 지자체 조례=자치법규, 국가법령=법령."""
+    from gunpolaw.extract import classify
+    assert classify("군포시 자전거 이용 활성화에 관한 조례") == "자치법규"
+    assert classify("도로교통법") == "법령"
+    assert classify("안양시 행정기구 설치 규칙") == "자치법규"   # 인접 시군
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0
