@@ -329,33 +329,50 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
 
 # ---------- HTML 렌더 ----------
 _CSS = """
-:root { --mech:#2563eb; --rev:#d97706; --chk:#6b7280; --fmt:#7c3aed; --cur:#16a34a; }
+/* 변수는 .page(독립 권고서)·.ord(대시보드 주입 블록)에만 — :root 로 두면 대시보드의
+   자체 변수를 덮어써 색이 바뀐다. 두 루트에 한정해 주입 시 오염을 막는다. */
+.page, .ord { --navy:#13325b; --navy2:#1d4e89;
+  --mech:#1d4ed8; --rev:#b45309; --chk:#52525b; --fmt:#6d28d9; --cur:#15803d;
+  --ink:#1f2937; --muted:#6b7280; --line:#d8dee6; --soft:#f6f8fb; }
 * { box-sizing: border-box; }
-body { font-family: "Malgun Gothic","맑은 고딕",system-ui,sans-serif;
-       color:#1f2937; margin:0; background:#f3f4f6; }
-.page { max-width:980px; margin:0 auto; padding:32px 28px 64px; background:#fff; }
-h1 { font-size:24px; margin:0 0 4px; }
-.sub { color:#6b7280; font-size:13px; margin-bottom:24px; }
-.cards { display:flex; gap:12px; flex-wrap:wrap; margin:0 0 28px; }
-.card { flex:1 1 160px; border:1px solid #e5e7eb; border-radius:10px;
-        padding:14px 16px; }
-.card .n { font-size:28px; font-weight:700; line-height:1; }
-.card .t { font-size:13px; color:#6b7280; margin-top:6px; }
-.g-mech .n { color:var(--mech);} .g-rev .n { color:var(--rev);}
-.g-chk .n { color:var(--chk);} .g-fmt .n { color:var(--fmt);} .g-cur .n { color:var(--cur);}
-.ord { border:1px solid #e5e7eb; border-radius:10px; padding:16px 18px;
+/* 독립 권고서 페이지 한정(body.report·.page) — 대시보드 주입 시 충돌 방지.
+   대시보드는 자체 body/h1/.cards/.sub/.card 를 가져 prefix 없으면 덮어쓴다. */
+body.report { font-family: "Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+       color:var(--ink); margin:0; background:#eef1f5; line-height:1.55;
+       -webkit-text-size-adjust:100%; }
+.page { max-width:840px; margin:24px auto; padding:38px 44px 52px; background:#fff;
+        border-top:4px solid var(--navy); box-shadow:0 1px 5px rgba(15,33,66,.10); }
+/* 문서 머리 — 공문 단정형(머리표·제목·요지, 아래 굵은 밑줄) */
+.page .dochd { border-bottom:2px solid var(--navy); padding-bottom:13px; margin-bottom:22px; }
+.page .dochd .kicker { font-size:11.5px; letter-spacing:3px; color:var(--navy2);
+        font-weight:700; margin:0 0 6px; }
+.page h1 { font-size:22px; line-height:1.34; margin:0; color:var(--navy);
+     font-weight:700; letter-spacing:-.3px; }
+.page .sub { color:var(--muted); font-size:12.5px; margin-top:7px; }
+.page .cards { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 20px; }
+.page .card { flex:1 1 138px; border:1px solid var(--line); border-top:3px solid var(--chk);
+        border-radius:6px; padding:12px 15px; }
+.page .card .n { font-size:25px; font-weight:700; line-height:1; color:var(--ink); }
+.page .card .t { font-size:12.5px; color:var(--muted); margin-top:6px; }
+.page .g-mech { border-top-color:var(--mech);} .page .g-mech .n { color:var(--mech);}
+.page .g-rev { border-top-color:var(--rev);} .page .g-rev .n { color:var(--rev);}
+.page .g-chk { border-top-color:var(--chk);} .page .g-chk .n { color:var(--chk);}
+.page .g-fmt { border-top-color:var(--fmt);} .page .g-fmt .n { color:var(--fmt);}
+.page .g-cur { border-top-color:var(--cur);} .page .g-cur .n { color:var(--cur);}
+.ord { border:1px solid var(--line); border-radius:7px; padding:18px 20px;
        margin:0 0 16px; page-break-inside:avoid; }
-.ord h2 { font-size:17px; margin:0 0 2px; }
-.ord .meta { color:#6b7280; font-size:12px; margin-bottom:10px; }
-.badges { margin-bottom:10px; }
-.badge { display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px;
-         margin-right:6px; color:#fff; }
-.b-mech { background:var(--mech);} .b-rev { background:var(--rev);}
-.b-chk { background:var(--chk);} .b-fmt { background:var(--fmt);}
-.artsec { margin:0 0 6px; }
-.arthd { font-size:13px; font-weight:700; color:#111827; background:#eef2ff;
-         border-left:3px solid var(--mech); padding:4px 10px; border-radius:4px;
-         margin:12px 0 4px; }
+.ord h2 { font-size:16.5px; margin:0 0 3px; color:var(--navy); font-weight:700;
+          padding-left:10px; border-left:4px solid var(--navy); }
+.ord .meta { color:var(--muted); font-size:12px; margin:0 0 12px; padding-left:14px; }
+.badges { margin:0 0 12px; }
+.badge { display:inline-block; font-size:11.5px; padding:2px 10px; border-radius:4px;
+         margin-right:6px; border:1px solid currentColor; background:#fff; font-weight:600; }
+.b-mech { color:var(--mech);} .b-rev { color:var(--rev);}
+.b-chk { color:var(--chk);} .b-fmt { color:var(--fmt);}
+.artsec { margin:0 0 8px; }
+.arthd { font-size:13px; font-weight:700; color:var(--navy); background:var(--soft);
+         border-left:3px solid var(--navy2); padding:5px 11px; border-radius:0 4px 4px 0;
+         margin:14px 0 6px; }
 .item { border-top:1px solid #f3f4f6; padding:9px 0 9px 10px; }
 .iline { margin-bottom:3px; }
 .item .tag { font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px;
@@ -373,19 +390,19 @@ details.citem > summary { list-style:none; cursor:pointer; padding:9px 10px 9px 
     display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
 details.citem > summary::-webkit-details-marker { display:none; }
 details.citem > summary::before { content:"▸"; color:#9ca3af; font-size:11px; margin-right:2px; }
-details.citem[open] > summary::before { content:"▾"; color:#2563eb; }
+details.citem[open] > summary::before { content:"▾"; color:var(--navy2); }
 details.citem[open] { background:#fbfcfe; }
 details.citem > .act { padding:2px 10px 0; } details.citem > .basis { padding:0 10px; }
 details.citem > .diff { margin:6px 10px 10px; }
-details.citem.focus { box-shadow:inset 3px 0 0 #2563eb; }
+details.citem.focus { box-shadow:inset 3px 0 0 var(--navy2); }
 .item .law { font-size:13px; font-weight:600; color:#374151; }
-.item .act { font-size:14px; margin:2px 0; }
-.basis { font-size:11.5px; color:#6b7280; margin:4px 0 6px; }
+.item .act { font-size:13.5px; margin:3px 0; color:var(--ink); }
+.basis { font-size:11.5px; color:var(--muted); margin:4px 0 6px; }
 .basis b { color:#374151; font-weight:600; }
-.ordtext { font-size:12.5px; color:#1f2937; background:#f8fafc; border:1px solid #e5e7eb;
-           border-left:3px solid #94a3b8; border-radius:6px; padding:7px 10px; margin:4px 0 8px;
-           white-space:pre-wrap; line-height:1.6; }
-.ordtext b { color:#0f172a; margin-right:4px; }
+.ordtext { font-size:12.5px; color:var(--ink); background:var(--soft); border:1px solid var(--line);
+           border-left:3px solid var(--navy2); border-radius:0 6px 6px 0; padding:8px 11px;
+           margin:5px 0 9px; white-space:pre-wrap; line-height:1.7; }
+.ordtext b { color:var(--navy); margin-right:5px; }
 mark.cite-law { background:#eff6ff; color:#1e3a8a;
    text-decoration:underline; text-decoration-color:#2563eb; text-underline-offset:2px;
    border-radius:2px; padding:0 1px; }
@@ -395,8 +412,9 @@ mark.cite-naked { background:#f5f3ff; color:#5b21b6;
 mark.cite-local { background:#f1f5f9; color:#475569;
    text-decoration:underline dotted; text-decoration-color:#94a3b8; text-underline-offset:2px;
    border-radius:2px; padding:0 1px; }
-.leg { font-size:12px; color:#6b7280; margin:0 0 18px; display:flex; gap:14px; flex-wrap:wrap; }
-.leg mark { padding:0 4px; border-radius:2px; }
+.page .leg { font-size:12px; color:var(--muted); margin:0 0 18px; display:flex; gap:14px;
+        flex-wrap:wrap; align-items:center; }
+.page .leg mark { padding:0 4px; border-radius:2px; }
 .item .ev { font-size:12px; color:#6b7280; white-space:pre-wrap;
             background:#f9fafb; border-radius:6px; padding:7px 9px; margin-top:6px; }
 .diff { border:1px solid #eef0f3; border-radius:6px; overflow:hidden; margin-top:6px; }
@@ -410,12 +428,16 @@ mark.d { background:#fee2e2; color:#991b1b; text-decoration:line-through;
 mark.i { background:#dcfce7; color:#166534; border-radius:2px; padding:0 1px; }
 mark.pt { background:#fee2e2; color:#dc2626; font-weight:700; border-radius:2px;
           padding:0 2px; cursor:help; }
-footer { color:#9ca3af; font-size:12px; margin-top:32px; text-align:center; }
+.page footer { color:#9aa3af; font-size:11.5px; margin-top:34px; padding-top:14px;
+         border-top:1px solid var(--line); text-align:center; }
 @media print {
-  body { background:#fff; } .page { max-width:none; padding:0; }
-  .ord, .card { border-color:#d1d5db; }
-  mark.d, mark.i, mark.pt,
-  .ordtext mark { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  @page { size:A4; margin:16mm; }
+  body { background:#fff; }
+  .page { max-width:none; margin:0; padding:0; border-top:none; box-shadow:none; }
+  .ord, .card { border-color:#c4cbd4; }
+  .dochd { border-bottom-color:#000; }
+  mark.d, mark.i, mark.pt, .ordtext mark, .card, .badge {
+    -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 """
 
@@ -594,8 +616,10 @@ def render_html(model, generated_at="", title="자치법규 정비 권고서"):
         '<span><mark class="cite-naked">꺽쇠(「」) 누락</mark></span></div>')
     return (
         "<!DOCTYPE html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
-        f"<title>{_esc(title)}</title><style>{_CSS}</style></head><body>"
-        f'<div class="page"><h1>{_esc(title)}</h1><div class="sub">{sub}</div>'
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<title>{_esc(title)}</title><style>{_CSS}</style></head><body class=\"report\">"
+        f'<div class="page"><div class="dochd"><div class="kicker">자치법규 정비 점검</div>'
+        f'<h1>{_esc(title)}</h1><div class="sub">{sub}</div></div>'
         f'<div class="cards">{cards}</div>{legend}{blocks}'
         '<footer>본 권고서는 인용 조항의 시점·내용 비교로 자동 생성된 초안이며, '
         '최종 개정 판단은 담당 부서의 검토를 따릅니다.</footer>'
