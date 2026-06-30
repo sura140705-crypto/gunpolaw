@@ -94,11 +94,22 @@ def trace_finding(db_path=db.DEFAULT_DB, finding_id=None):
                       "파이프라인 단계 판정(조문 단위 비교 이전) — 저장된 detail 이 근거."})
         out["recomputed"] = None
         out["match"] = None
+        out["reason"] = "조문 비교 함수 밖(파이프라인 단계) — 재실행 대조 대상 아님"
         conn.close()
         return out
 
     # 1) 현행 조문 원본 재파싱
     cur_xml = src.get_law_body(law_id)
+    # 공유용 슬림 DB는 법령 본문(laws.body_xml)을 비워 재실행이 불가 — 거짓 '불일치' 대신 명시
+    if clause and not cur_xml:
+        steps.append({"k": "현행 조문 원본", "label": clause, "found": False,
+                      "note": "laws.body_xml 미적재 — 공유용 슬림 DB에서는 재실행 진단을 "
+                              "지원하지 않습니다(총괄 전체 DB에서 확인). 저장된 판정·근거는 정상."})
+        out["recomputed"] = None
+        out["match"] = None
+        out["reason"] = "공유용 슬림 DB — 원본 본문이 없어 재실행 진단 미지원(총괄 전체 DB 전용)"
+        conn.close()
+        return out
     cur_arts = parse_law_articles(cur_xml) if cur_xml else {}
     cur = cur_arts.get(clause)
     steps.append({"k": "현행 조문 원본", "label": clause, "found": cur is not None,

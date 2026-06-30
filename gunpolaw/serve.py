@@ -939,7 +939,7 @@ function renderTrace(t){
   if(t.error){box.innerHTML=`<div class="empty">${esc(t.error)}</div>`;return;}
   const f=t.finding, o=t.ordinance;
   let v;
-  if(t.match===null) v=`<div class="verdict na">이 판정은 조문 비교 함수 밖(파이프라인 단계) — 재실행 대조 대상 아님</div>`;
+  if(t.match===null) v=`<div class="verdict na">${esc(t.reason||"재실행 대조 대상 아님")}</div>`;
   else{
     const rc=t.recomputed;
     const ok=t.match;
