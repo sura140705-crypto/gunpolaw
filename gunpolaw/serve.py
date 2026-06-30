@@ -243,6 +243,23 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if path == "/" or path == "/index.html":
                 return self._send(DASHBOARD_HTML, ctype="text/html; charset=utf-8")
+            if path == "/admin":
+                return self._send(ADMIN_HTML, ctype="text/html; charset=utf-8")
+            if path == "/api/admin/findings":
+                from .diag import list_findings
+                q = parse_qs(u.query)
+                g = lambda k: (q.get(k) or [None])[0] or None
+                return self._json(list_findings(
+                    self.db_path, severity=g("severity"),
+                    change_type=g("change_type"), q=g("q"),
+                    limit=int((q.get("limit") or ["300"])[0])))
+            if path == "/api/admin/trace":
+                from .diag import trace_finding
+                q = parse_qs(u.query)
+                fid = (q.get("id") or [None])[0]
+                if not fid or not fid.isdigit():
+                    return self._json({"error": "id(숫자) 필요"}, status=400)
+                return self._json(trace_finding(self.db_path, int(fid)))
             if path == "/api/overview":
                 return self._json(overview(self.db_path))
             if path == "/api/ordinances":
@@ -458,7 +475,8 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .changes .ackb:disabled{opacity:.5;cursor:default;}
 </style></head>
 <body><div class="wrap">
-  <h1>자치법규 정비 — 총괄 대시보드</h1>
+  <h1>자치법규 정비 — 총괄 대시보드
+    <a href="/admin" style="float:right;font-size:13px;font-weight:400;color:#6b7280;text-decoration:none">🔧 판정 근거 검사</a></h1>
   <div class="banner" id="banner">불러오는 중…</div>
   <div class="cards" id="cards"></div>
   <div class="changes" id="changes" style="display:none"></div>
@@ -724,6 +742,180 @@ async function init(){
   refresh();
 }
 init();
+</script>
+</body></html>
+"""
+
+
+# ---------- 관리자: 판정 근거 검사기(단일 HTML, 의존성 0) ----------
+ADMIN_HTML = r"""<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>판정 근거 검사 — 관리자</title>
+<style>
+body{font-family:-apple-system,"Malgun Gothic",sans-serif;margin:0;background:#f8fafc;color:#111827;}
+.wrap{max-width:1280px;margin:0 auto;padding:18px 22px;}
+h1{font-size:19px;margin:0 0 4px;}
+.sub{color:#6b7280;font-size:13px;margin:0 0 14px;}
+.sub a{color:#2563eb;text-decoration:none;}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
+.controls select,.controls input{font-size:13.5px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;outline:none;}
+.controls input{min-width:240px;}
+.controls input:focus,.controls select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #bfdbfe;}
+.layout{display:grid;grid-template-columns:minmax(380px,1fr) minmax(420px,1.25fr);gap:14px;align-items:start;}
+.panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;}
+th{background:#f8fafc;color:#6b7280;font-weight:600;position:sticky;top:0;}
+.flist{max-height:78vh;overflow:auto;}
+.flist tr{cursor:pointer;}
+.flist tr:hover{background:#f9fafb;}
+.flist tr.sel{background:#eff6ff;}
+.sev{font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;white-space:nowrap;}
+.sev.mechanical{background:#dbeafe;color:#1e40af;}
+.sev.review{background:#fef3c7;color:#92400e;}
+.sev.check{background:#e5e7eb;color:#374151;}
+.sev.current{background:#dcfce7;color:#166534;}
+.muted{color:#9ca3af;}
+.trace{padding:14px 16px;max-height:78vh;overflow:auto;}
+.thead{font-size:15px;font-weight:700;margin:0 0 2px;}
+.tmeta{font-size:12.5px;color:#6b7280;margin:0 0 10px;}
+.verdict{display:flex;gap:10px;align-items:center;margin:0 0 14px;padding:9px 12px;border-radius:9px;font-size:13px;}
+.verdict.ok{background:#f0fdf4;border:1px solid #bbf7d0;}
+.verdict.bad{background:#fef2f2;border:1px solid #fecaca;}
+.verdict.na{background:#f8fafc;border:1px solid #e5e7eb;}
+.badge{font-weight:700;font-size:12px;border-radius:999px;padding:2px 10px;}
+.badge.ok{background:#16a34a;color:#fff;}
+.badge.bad{background:#dc2626;color:#fff;}
+.step{border:1px solid #eef2f7;border-left:3px solid #93c5fd;border-radius:8px;padding:9px 12px;margin:0 0 9px;}
+.step .k{font-size:12.5px;font-weight:700;color:#1d4ed8;margin:0 0 4px;}
+.step .d{font-size:11.5px;color:#6b7280;margin:0 0 6px;}
+.kv{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;margin:2px 0;}
+.kv b{color:#374151;}
+.chiprow{display:flex;flex-wrap:wrap;gap:5px;margin:3px 0;}
+.chip{font-size:11.5px;background:#f1f5f9;border-radius:6px;padding:1px 7px;color:#334155;}
+.yes{color:#16a34a;font-weight:700;}.no{color:#dc2626;font-weight:700;}
+pre{white-space:pre-wrap;word-break:break-word;font-family:"SFMono-Regular",Consolas,monospace;
+  font-size:12px;background:#f8fafc;border:1px solid #eef2f7;border-radius:7px;padding:8px 10px;margin:4px 0 0;
+  max-height:230px;overflow:auto;}
+.amd{background:#fde68a;color:#92400e;border-radius:3px;padding:0 2px;font-weight:600;}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.cmp .lbl{font-size:11px;font-weight:700;color:#6b7280;}
+.empty{padding:30px;text-align:center;color:#9ca3af;font-size:13px;}
+</style></head>
+<body><div class="wrap">
+  <h1>판정 근거 검사기 <span class="muted" style="font-size:13px;font-weight:400">(관리자 · 라이브 API 0)</span></h1>
+  <p class="sub">finding 을 만든 검토 로직을 DB 원본으로 <b>그대로 재실행</b>해 단계별 신호를 보여줍니다.
+     재판정과 저장값을 대조해 <b>일치 여부</b>도 표시(불일치=파서/로직이 배치 이후 바뀜 → reparse 필요).
+     · <a href="/">← 대시보드</a></p>
+  <div class="controls">
+    <input type="search" id="q" placeholder="🔍 법령명·조례명">
+    <select id="sev"><option value="">등급 — 전체</option>
+      <option value="mechanical">🔧 기계적</option><option value="review">⚠️ 검토</option>
+      <option value="check">📋 확인</option><option value="current">✅ 현행</option></select>
+    <select id="ct"><option value="">변경유형 — 전체</option>
+      <option>내용변경</option><option>동일</option><option>번호이동</option>
+      <option>삭제</option><option>당시부재</option><option>미확인</option><option>제명변경</option></select>
+    <span class="muted" id="count"></span>
+  </div>
+  <div class="layout">
+    <div class="panel"><div class="flist" id="flist"></div></div>
+    <div class="panel"><div class="trace" id="trace"><div class="empty">왼쪽에서 finding 을 선택하세요.</div></div></div>
+  </div>
+</div>
+<script>
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function fd(s){const d=String(s||"").replace(/[^0-9]/g,"").slice(0,8);
+  return d.length===8?`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`:(s||"—");}
+const SEVK={mechanical:"🔧기계적",review:"⚠️검토",check:"📋확인",current:"✅현행"};
+let SEL=null;
+async function getJSON(u){const r=await fetch(u);return r.json();}
+
+function amdHi(text){ // <개정 …> 태그 강조(escape 후 래핑)
+  return esc(text).replace(/(&lt;(?:개정|신설|전문개정)[^&]*?&gt;)/g,'<span class="amd">$1</span>');}
+
+async function loadList(){
+  const q=document.getElementById("q").value.trim();
+  const sev=document.getElementById("sev").value, ct=document.getElementById("ct").value;
+  const u=`/api/admin/findings?limit=300`+(q?`&q=${encodeURIComponent(q)}`:"")
+    +(sev?`&severity=${sev}`:"")+(ct?`&change_type=${encodeURIComponent(ct)}`:"");
+  const r=await getJSON(u);
+  document.getElementById("count").textContent=`${r.shown} / ${r.total}건`+(r.shown<r.total?" (상위 300)":"");
+  if(!r.findings.length){document.getElementById("flist").innerHTML=`<div class="empty">해당 finding 없음.</div>`;return;}
+  const rows=r.findings.map(f=>`<tr data-id="${f.id}">
+    <td>${esc(f.ord_name)}<div class="muted" style="font-size:11px">${esc(f.dept||"")}</div></td>
+    <td>「${esc(f.law_name)}」 ${esc(f.clause_label)}${esc(f.clause_detail||"")}</td>
+    <td><span class="sev ${f.severity}">${SEVK[f.severity]||f.severity}</span>
+        ${f.change_type?`<div class="muted" style="font-size:11px;margin-top:2px">${esc(f.change_type)}</div>`:""}</td></tr>`).join("");
+  document.getElementById("flist").innerHTML=
+    `<table><thead><tr><th>조례</th><th>인용 상위법</th><th>판정</th></tr></thead><tbody>${rows}</tbody></table>`;
+  document.querySelectorAll("#flist tr[data-id]").forEach(tr=>tr.onclick=()=>selectF(tr.dataset.id,tr));
+}
+
+async function selectF(id,tr){
+  document.querySelectorAll("#flist tr.sel").forEach(x=>x.classList.remove("sel"));
+  if(tr)tr.classList.add("sel");
+  const t=await getJSON(`/api/admin/trace?id=${id}`);
+  renderTrace(t);
+}
+
+function vline(label,val,cls){return `<span class="kv"><b>${label}</b> <span class="${cls||""}">${val}</span></span>`;}
+
+function renderStep(s){
+  let body="";
+  const d=s.detail?`<div class="d">${esc(s.detail)}</div>`:"";
+  if(s.k==="현행 조문 원본"){
+    body=`<div class="kv"><b>존재</b> <span class="${s.found?'yes':'no'}">${s.found?"있음":"없음"}</span>`
+      +(s.clause_enforce?` · <b>조문시행일</b> ${fd(s.clause_enforce)}`:"")+`</div>`
+      +(s.note?`<div class="d no">${esc(s.note)}</div>`:"")
+      +(s.content?`<pre>${amdHi(s.content)}</pre>`:"");
+  }else if(s.k.indexOf("amend_dates")>=0){
+    body=`<div class="chiprow">${(s.dates||[]).map(x=>`<span class="chip">${fd(x)}</span>`).join("")||'<span class="muted">없음</span>'}</div>`;
+  }else if(s.k==="basis_dates"){
+    body=`<div class="kv"><b>조례시행</b> ${fd(s.ord_enforce)} · <b>당시기준(was)</b> ${esc(s.was||"—")} · `
+      +`<b>현행기준(now)</b> ${s.now?fd(s.now):"—"} · <b>시행후개정</b> `
+      +`<span class="${s.amended_after?'no':'yes'}">${s.amended_after===true?"있음→검토":s.amended_after===false?"없음→현행":"판별불가"}</span></div>`;
+  }else if(s.k.indexOf("as_of")>=0){
+    body=`<div class="kv"><b>당시본 수</b> ${s.n_versions} · `
+      +(s.selected_mst?`<b>선택</b> 시행 ${fd(s.selected_enforce)} (mst ${esc(s.selected_mst)})`
+        :`<span class="no">당시본 못 고름 → check_clause 폴백</span>`)+`</div>`;
+  }else if(s.k.indexOf("좁히기")>=0){
+    body=`<div class="kv"><b>대상</b> ${esc(s.subspec)} · <b>좁히기</b> `
+      +`<span class="${s.narrowed?'yes':'no'}">${s.narrowed?"성공":"실패→조 전체 폴백"}</span>`
+      +(s.narrowed?` · <b>동일</b> <span class="${s.equal?'yes':'no'}">${s.equal?"예":"아니오(변경)"}</span>`:"")+`</div>`
+      +(s.narrowed?`<div class="cmp"><div><div class="lbl">[당시]</div><pre>${esc(s.old_sub)}</pre></div>`
+        +`<div><div class="lbl">[현행]</div><pre>${esc(s.cur_sub)}</pre></div></div>`:"");
+  }else{
+    body=`<div class="kv">${esc(JSON.stringify(Object.fromEntries(Object.entries(s).filter(([k])=>k!=="k"&&k!=="detail"))))}</div>`;
+  }
+  return `<div class="step"><div class="k">${esc(s.k)}</div>${d}${body}</div>`;
+}
+
+function renderTrace(t){
+  const box=document.getElementById("trace");
+  if(t.error){box.innerHTML=`<div class="empty">${esc(t.error)}</div>`;return;}
+  const f=t.finding, o=t.ordinance;
+  let v;
+  if(t.match===null) v=`<div class="verdict na">이 판정은 조문 비교 함수 밖(파이프라인 단계) — 재실행 대조 대상 아님</div>`;
+  else{
+    const rc=t.recomputed;
+    const ok=t.match;
+    v=`<div class="verdict ${ok?'ok':'bad'}"><span class="badge ${ok?'ok':'bad'}">${ok?"✓ 일치":"⚠ 불일치"}</span>
+       <span>저장: <b>${SEVK[f.severity]||f.severity}</b>${f.change_type?" / "+esc(f.change_type):""}
+       &nbsp;↔&nbsp; 재판정: <b>${SEVK[rc.severity]||rc.severity}</b>${rc.change_type?" / "+esc(rc.change_type):""}</span></div>`
+       +(!ok?`<div class="d" style="margin:-8px 0 12px;color:#b91c1c">불일치 = 파서/로직이 배치 이후 변경됨 → <b>--reparse</b> 권장</div>`:"");
+  }
+  box.innerHTML=`<div class="thead">${esc(o.name||"조례")} <span class="muted">·</span> 「${esc(f.law_name)}」 ${esc(f.clause_label)}${esc(f.clause_detail||"")}</div>
+    <div class="tmeta">조례 시행 ${fd(o.enforce_date)} · 담당 ${esc(o.dept||"—")} · 인용 위치 ${esc(f.ord_clause||"—")} · deep=${t.deep}</div>
+    ${v}
+    <div class="d" style="margin:0 0 8px"><b>저장 detail:</b> ${esc(f.detail||"")}</div>
+    ${t.steps.map(renderStep).join("")}`;
+}
+
+document.getElementById("q").oninput=(()=>{let h;return()=>{clearTimeout(h);h=setTimeout(loadList,220);};})();
+document.getElementById("sev").onchange=loadList;
+document.getElementById("ct").onchange=loadList;
+loadList();
 </script>
 </body></html>
 """
