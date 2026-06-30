@@ -35,16 +35,26 @@ def _parse_subspec(detail):
 
 def list_findings(db_path=db.DEFAULT_DB, severity=None, change_type=None,
                   q=None, limit=300):
-    """진단용 finding 목록(필터: 등급·변경유형·법령/조례명 부분일치). 등급 위중 순."""
+    """진단용 finding 목록(필터: 등급·변경유형·법령/조례명 부분일치). 등급 위중 순.
+
+    counts: 등급별 건수(q/변경유형 필터는 반영, 등급 필터는 무시) — '제외(current)'까지
+    한눈에 보여 검토뿐 아니라 제외 판정도 표본 검증하게 한다.
+    """
     conn = db.connect(db_path)
-    where, args = [], []
-    if severity:
-        where.append("f.severity=?"); args.append(severity)
+    # 기본 필터(q·변경유형) — counts 와 목록이 공유. 등급은 목록에만 추가.
+    base, args = [], []
     if change_type:
-        where.append("COALESCE(f.change_type,'')=?"); args.append(change_type)
+        base.append("COALESCE(f.change_type,'')=?"); args.append(change_type)
     if q:
-        where.append("(f.law_name LIKE ? OR o.name LIKE ?)")
-        args += [f"%{q}%", f"%{q}%"]
+        base.append("(f.law_name LIKE ? OR o.name LIKE ?)"); args += [f"%{q}%", f"%{q}%"]
+    bsql = ("WHERE " + " AND ".join(base)) if base else ""
+    counts = {r["severity"]: r["n"] for r in conn.execute(
+        f"""SELECT f.severity, COUNT(*) n FROM findings f
+            JOIN ordinances o ON o.mst=f.mst {bsql} GROUP BY f.severity""", args)}
+
+    where, wargs = list(base), list(args)
+    if severity:
+        where.append("f.severity=?"); wargs.append(severity)
     wsql = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"""SELECT f.id, f.mst, o.name AS ord_name, o.dept, f.law_name, f.clause_label,
@@ -53,12 +63,11 @@ def list_findings(db_path=db.DEFAULT_DB, severity=None, change_type=None,
             {wsql}
             ORDER BY CASE f.severity WHEN 'mechanical' THEN 0 WHEN 'review' THEN 1
                      WHEN 'check' THEN 2 ELSE 3 END, o.name, f.ord_seq
-            LIMIT ?""", (*args, limit)).fetchall()
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM findings f JOIN ordinances o ON o.mst=f.mst {wsql}",
-        args).fetchone()[0]
+            LIMIT ?""", (*wargs, limit)).fetchall()
+    total = sum(counts.values()) if not severity else counts.get(severity, 0)
     conn.close()
-    return {"total": total, "shown": len(rows), "findings": [dict(r) for r in rows]}
+    return {"total": total, "shown": len(rows), "counts": counts,
+            "findings": [dict(r) for r in rows]}
 
 
 def trace_finding(db_path=db.DEFAULT_DB, finding_id=None):
@@ -135,6 +144,13 @@ def trace_finding(db_path=db.DEFAULT_DB, finding_id=None):
                           "equal": (os_ is not None and cs_ is not None
                                     and _norm(os_) == _norm(cs_)), "detail":
                           "인용한 그 호·목만 잘라 당시↔현행 비교(못 자르면 조 전체로 폴백)"})
+        elif old and cur:
+            # 조 전체 당시↔현행 — 제외(동일) 판정의 근거를 항상 눈으로 대조하게
+            steps.append({"k": "조 전체 당시↔현행 비교", "subspec": clause,
+                          "narrowed": True, "old_sub": old["content"],
+                          "cur_sub": cur["content"],
+                          "equal": _norm(old["content"]) == _norm(cur["content"]),
+                          "detail": "개정 태그가 1차 신호이고, 본문 동일 여부는 보조 근거"})
 
     # 6) 실제 판정 함수 재실행(원본 분기 그대로) → 7) 저장값 대조
     if deep and old_arts is not None:

@@ -762,6 +762,12 @@ h1{font-size:19px;margin:0 0 4px;}
 .controls select,.controls input{font-size:13.5px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;outline:none;}
 .controls input{min-width:240px;}
 .controls input:focus,.controls select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #bfdbfe;}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 12px;}
+.schip{font-size:12.5px;border:1px solid #e5e7eb;background:#fff;border-radius:999px;padding:4px 12px;
+  cursor:pointer;color:#374151;}
+.schip:hover{background:#f9fafb;}
+.schip.on{border-color:#2563eb;background:#eff6ff;color:#1d4ed8;font-weight:700;}
+.schip b{font-weight:700;}
 .layout{display:grid;grid-template-columns:minmax(380px,1fr) minmax(420px,1.25fr);gap:14px;align-items:start;}
 .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
@@ -815,9 +821,11 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:"SFMono-Regular",Cons
       <option value="check">📋 확인</option><option value="current">✅ 현행</option></select>
     <select id="ct"><option value="">변경유형 — 전체</option>
       <option>내용변경</option><option>동일</option><option>번호이동</option>
-      <option>삭제</option><option>당시부재</option><option>미확인</option><option>제명변경</option></select>
+      <option>삭제</option><option>당시부재</option><option>미확인</option>
+      <option>제명변경</option><option>법령미해결</option></select>
     <span class="muted" id="count"></span>
   </div>
+  <div class="chips" id="chips"></div>
   <div class="layout">
     <div class="panel"><div class="flist" id="flist"></div></div>
     <div class="panel"><div class="trace" id="trace"><div class="empty">왼쪽에서 finding 을 선택하세요.</div></div></div>
@@ -834,13 +842,26 @@ async function getJSON(u){const r=await fetch(u);return r.json();}
 function amdHi(text){ // <개정 …> 태그 강조(escape 후 래핑)
   return esc(text).replace(/(&lt;(?:개정|신설|전문개정)[^&]*?&gt;)/g,'<span class="amd">$1</span>');}
 
+function renderChips(counts,cur){
+  // 등급별 표본 칩 — 검토뿐 아니라 '제외(현행)'까지 한클릭. current=정비 제외 판정.
+  const order=[["","전체"],["mechanical","🔧 기계적"],["review","⚠️ 검토"],
+    ["check","📋 확인"],["current","✅ 제외(현행)"]];
+  const tot=Object.values(counts).reduce((a,b)=>a+b,0);
+  document.getElementById("chips").innerHTML=order.map(([k,lbl])=>{
+    const n=k===""?tot:(counts[k]||0);
+    return `<span class="schip${cur===k?" on":""}" data-sev="${k}">${lbl} <b>${n}</b></span>`;}).join("");
+  document.querySelectorAll("#chips .schip").forEach(c=>c.onclick=()=>{
+    document.getElementById("sev").value=c.dataset.sev; loadList();});
+}
+
 async function loadList(){
   const q=document.getElementById("q").value.trim();
   const sev=document.getElementById("sev").value, ct=document.getElementById("ct").value;
   const u=`/api/admin/findings?limit=300`+(q?`&q=${encodeURIComponent(q)}`:"")
     +(sev?`&severity=${sev}`:"")+(ct?`&change_type=${encodeURIComponent(ct)}`:"");
   const r=await getJSON(u);
-  document.getElementById("count").textContent=`${r.shown} / ${r.total}건`+(r.shown<r.total?" (상위 300)":"");
+  document.getElementById("count").textContent=`${r.shown} / ${r.total}건`+(r.shown<r.total?" (상위 300 표본)":"");
+  renderChips(r.counts||{}, sev);
   if(!r.findings.length){document.getElementById("flist").innerHTML=`<div class="empty">해당 finding 없음.</div>`;return;}
   const rows=r.findings.map(f=>`<tr data-id="${f.id}">
     <td>${esc(f.ord_name)}<div class="muted" style="font-size:11px">${esc(f.dept||"")}</div></td>

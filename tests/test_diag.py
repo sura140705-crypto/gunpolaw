@@ -25,7 +25,7 @@ _ORD_XML = """<?xml version="1.0" encoding="utf-8"?>
  </자치법규기본정보>
  <조문><조>
    <조문번호>000200</조문번호><조문여부>Y</조문여부><조제목>정의</조제목>
-   <조내용>제2조(정의) 이 조례는 「건축법」 제2조에 따른다.</조내용>
+   <조내용>제2조(정의) 이 조례는 「건축법」 제2조 및 제3조에 따른다.</조내용>
  </조></조문>
 </법령>"""
 
@@ -37,6 +37,11 @@ _LAW_XML = """<?xml version="1.0" encoding="utf-8"?>
    <조문시행일자>20200101</조문시행일자>
    <조문내용>제2조(정의) 이 법에서 쓰는 용어의 뜻. &lt;개정 2020.1.1&gt;</조문내용>
    <호><호내용>1. "대지"란 각 필지로 나눈 토지를 말한다.</호내용></호>
+ </조문단위></조문>
+ <조문><조문단위>
+   <조문여부>조문</조문여부><조문번호>3</조문번호><조문제목>적용</조문제목>
+   <조문시행일자>20050101</조문시행일자>
+   <조문내용>제3조(적용) 이 법은 모든 건축물에 적용한다. &lt;개정 2005.1.1&gt;</조문내용>
  </조문단위></조문>
 </법령>"""
 
@@ -92,12 +97,30 @@ def test_trace_all_findings_consistent():
     os.unlink(path)
 
 
-def test_list_filters():
+def test_list_filters_and_counts():
     path = _make_db(deep=0)
     reparse_all(path, deep=False, verbose=False)
+    full = list_findings(path)
+    assert "counts" in full and sum(full["counts"].values()) == full["total"]
     assert list_findings(path, severity="review")["total"] >= 1
     assert list_findings(path, q="건축법")["total"] >= 1
     assert list_findings(path, q="없는법령명")["total"] == 0
+
+
+def test_excluded_current_is_listable_and_traced():
+    """제외(current/현행정합)도 목록·트레이스 대상 — 검증 핵심. 제3조는 조례 시행 전 개정→현행."""
+    path = _make_db(deep=0)
+    reparse_all(path, deep=False, verbose=False)
+    cur = list_findings(path, severity="current")
+    assert cur["total"] >= 1, cur                       # 제외 판정이 목록에 나옴
+    f3 = [f for f in cur["findings"] if f["clause_label"] == "제3조"]
+    assert f3, cur["findings"]
+    t = trace_finding(path, f3[0]["id"])
+    assert t["recomputed"]["severity"] == "current", t["recomputed"]
+    assert t["match"] is True
+    # basis_dates 단계가 '시행 후 개정 없음'을 근거로 제외했음을 보여줘야
+    bd = [s for s in t["steps"] if s["k"] == "basis_dates"]
+    assert bd and bd[0]["amended_after"] is False, bd
     os.unlink(path)
 
 
