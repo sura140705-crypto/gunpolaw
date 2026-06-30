@@ -1,48 +1,70 @@
-# 군포시 조례정비 시스템
+# 군포시 자치법규 정비 점검 (gunpolaw)
 
-군포시 자치법규(조례·규칙 등)가 인용하는 **상위 법령·조항이 조례 제정 이후 개정되었는지**를
-조항 단위로 자동 검증하여, "기계적 일괄 개정 가능 후보"를 식별하는 시스템.
+군포시 자치법규(조례·규칙 등)가 인용한 **상위 법령 조항이 조례 시행 이후 개정되었는지**를
+조문 단위로 자동 점검하고, 정비가 필요한 부분을 권고하는 도구입니다.
 
-> 상세 배경·작업 이력·법제처 API 탐사 결과는 [`docs/HANDOVER.md`](docs/HANDOVER.md) 참고.
+**오프라인 우선**: 한 번의 수집으로 필요한 데이터를 모두 로컬 SQLite(`gunpolaw.db`)에 적재한 뒤,
+이후 보기·검증·리포트·역추적은 **DB만 읽어** 동작합니다(라이브 API·인증키 불요).
 
-## 구성
+## 두 가지 역할
 
-| 파일 | 역할 |
-|---|---|
-| `file1.py` | Phase 1~5: 자치법규 수집·본문파싱·인용추출·최신화점검 + 규칙엔진 + 로컬 HTTP 서버 |
-| `phase6.py` | 조항 단위 시점 검증 (토큰화·일괄검증·신구법비교) |
-| `gunpo_ui_v2.html` | 좌우 분할 뷰 UI (조문 색칠 + 인스펙터) |
-| `gunpo_ordinances.db` | SQLite — 수집된 자치법규 (현재 640건) |
+1. **수집(운영자)** — 법제처 OpenAPI로 데이터 적재. **본인 OC 키 필요**. 주 1회 정도 재생성.
+2. **보기(테스터·담당자)** — 적재된 DB로 대시보드·권고서 열람. 키·인터넷 불요.
 
-## 실행
+## 설치
 
-```powershell
-# 방법 1) 기동 시 OC 키 입력
-python file1.py
-# → "법제처 OpenAPI OC 키 입력:" 프롬프트에 키 입력
-# → 브라우저 http://localhost:8765 자동 오픈
+- **Python 3** (표준 라이브러리만 사용 — 외부 의존성 0)
 
-# 방법 2) 환경변수로 미리 지정
-$env:LAW_OC_KEY = "발급받은_OC_키"
-python file1.py
+## 사용
+
+**수집 (OC 키 필요)**
+```bash
+set LAW_OC_KEY=발급받은_OC_키
+python -m gunpolaw --batch [--deep] [--incr|--max-age D]  # 전수/증분 수집·분석
+python -m gunpolaw --reparse           # 코드 수정 후 재분석(라이브 API 0)
+python -m gunpolaw --recommend [경로]  # 전체 개정 권고서 HTML
+python -m gunpolaw --export-share      # 공유용 슬림 zip 생성(코드+보기전용 DB+안내문)
 ```
 
-- 의존성: **Python 표준 라이브러리만 사용** (별도 설치 불필요)
-- 데이터 소스: 법제처 OpenAPI (`law.go.kr/DRF`)
-- **OC 키는 소스에 저장하지 않음** — 기동 시 입력하거나 환경변수 `LAW_OC_KEY` 사용
+**보기 (키 불요)**
+```bash
+python -m gunpolaw --serve [포트]            # 대시보드 → http://127.0.0.1:8765/
+python -m gunpolaw --recommend --mst <MST>   # 조례 1건 분석 권고서 HTML
+python -m gunpolaw --changes [--all]         # 법령 개정 → 영향 조례(역추적)
+```
 
-## 개발 환경
+대시보드: 담당과 필터·**조례명/인용법령 검색**, 조례 통합뷰(본문 **인용 밑줄**·당시↔현행 diff·
+**상위법령 정보 카드**), **조례별 분석 권고서**, 법령 개정 역추적 알림(검토완료 표시),
+`/admin` **판정 근거 검사**(검토 로직 재실행 추적).
 
-- Python 3.14 (Windows)
+## 대상 지자체 교체
 
-## 작업 원칙 (인계 노트 기준)
+코드 수정 없이 환경변수 `LAW_ORG`/`LAW_SBORG`/`LAW_REGION`/`LAW_LOCAL_PREFIX` 또는
+`region.json` 로 교체 (`gunpolaw/config.py`).
 
-- `file1.py` / `phase6.py` / `gunpo_ui_v2.html` 단일 파일 유지 (모듈 분리 X)
-- DB 스키마 무변경, 기존 함수 시그니처 유지
-- 시연 시간 3~5분 내 설명 가능한 규모
+## 배포 모델
 
-## 다음 작업 후보
+- **코드** = 이 (비공개) 리포지터리.
+- **데이터(DB)** = git에 넣지 않음(대용량 스냅샷, `.gitignore` 처리). `--export-share` 로 만든
+  **슬림 zip**(코드 + 보기전용 DB + 안내문, 약 2.4MB)을 **GitHub Release 첨부**로 배포.
+  테스터는 zip 하나만 받아 풀고 `python -m gunpolaw --serve` 하면 됩니다.
+- 슬림 DB는 상위법령 원문(`laws`/`law_versions`)을 비운 보기 전용입니다. 화면 결과는 전체 DB와
+  동일하며, `--reparse`(재분석)·`/admin` 정밀 재실행은 전체 DB(운영자)에서만 동작합니다.
 
-- **A)** STEP 4 보고서를 "개정 권고서"로 재설계 (등급분류 + 권고문안 + .docx)
-- **B)** STEP 1 상단 "일괄 개정 후보 위젯" (640건 자동 분류)
-- **C)** 분할 뷰 인스펙터 개선 (신구법 비교 인라인 표시)
+## 보안 주의
+
+- OC 키는 소스·리포에 저장하지 않습니다(환경변수 `LAW_OC_KEY`).
+- ⚠️ **과거 베이스라인 커밋 히스토리에 키 흔적이 있어, 공개 전환 시 히스토리 스크럽 +
+  키 재발급이 선행되어야 합니다.** 현재는 비공개 리포 전제.
+
+## 문서
+
+- 권위 설계서: [`docs/시스템_설계.md`](docs/시스템_설계.md)
+- 배포 안내(공유 zip 동봉): [`테스트_공유_안내.md`](테스트_공유_안내.md)
+
+## 개발
+
+```bash
+# 테스트(표준 unittest 스타일, pytest 불요)
+for t in tests/test_*.py; do python "$t"; done
+```
