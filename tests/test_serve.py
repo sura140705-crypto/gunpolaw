@@ -108,6 +108,32 @@ def test_search_by_name_and_cited_law():
     os.unlink(path)
 
 
+def test_law_refs_in_detail():
+    """조례 상세에 인용 상위법령 정보(law_refs: 조문·판정 요약·법령ID)가 담긴다."""
+    from gunpolaw.serve import ordinance_detail
+    path = _make_db()
+    conn = db.connect(path)
+    conn.execute("UPDATE ordinances SET body_xml=? WHERE mst='1'",
+                 ("<법령><자치법규기본정보><자치법규명>가 조례</자치법규명>"
+                  "<시행일자>20200101</시행일자></자치법규기본정보><조문><조>"
+                  "<조문번호>000100</조문번호><조문여부>Y</조문여부>"
+                  "<조내용>제1조 이 조례는 「건축법」 제2조에 따른다.</조내용></조></조문></법령>",))
+    conn.execute("INSERT INTO citations(mst,article_no,law_name,law_id,clause_label,cite_type)"
+                 " VALUES('1','제1조','건축법','000111','제2조','법령')")
+    # 법명만 인용(조문 없음)인 타 법령도
+    conn.execute("INSERT INTO citations(mst,article_no,law_name,law_id,clause_label,cite_type)"
+                 " VALUES('1','제1조','도서관법','000830','','법령')")
+    conn.commit(); conn.close()
+
+    d = ordinance_detail(path, "1")
+    lr = d["law_refs"]
+    assert "건축법" in lr and lr["건축법"]["law_id"] == "000111"
+    assert lr["건축법"]["clauses"] == ["제2조"]
+    assert lr["건축법"]["counts"].get("review") == 1     # 기존 finding(건축법 제2조 review)
+    assert "도서관법" in lr and lr["도서관법"]["clauses"] == []   # 법명만 인용
+    os.unlink(path)
+
+
 def test_dept_report_filter_and_csv():
     """build_model(dept=) 가 그 과 조례만, model_to_csv 가 그 행만 낸다."""
     path = _make_db()

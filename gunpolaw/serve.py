@@ -175,7 +175,7 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
         """SELECT mst, name, dept, phone, knd, promulg_date, enforce_date, body_xml
            FROM ordinances WHERE mst = ?""", (str(mst),)).fetchone()
     cits = conn.execute(
-        """SELECT article_no, law_name, clause_label, span_start, span_end,
+        """SELECT article_no, law_name, law_id, clause_label, span_start, span_end,
                   cite_naked, cite_type FROM citations WHERE mst = ?""",
         (str(mst),)).fetchall()
     # 타 조례(자치법규) 인용 → 우리 DB의 해당 조례로 해소(이름 매칭, 공백 무시).
@@ -190,6 +190,26 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
                        WHERE REPLACE(name,' ','') = ? AND mst != ? LIMIT 1""",
                     (key, str(mst))).fetchone()
                 local_refs[key] = (dict(ref) if ref else None)
+
+    # 상위법령 정보 카드용 — 인용한 법령별: ID·인용 조문·판정 등급 요약(좌측 클릭 시 우측 표시)
+    law_refs = {}
+    for c in cits:
+        if c["cite_type"] != "법령" or not c["law_name"]:
+            continue
+        key = c["law_name"].replace(" ", "")
+        d = law_refs.setdefault(key, {"name": c["law_name"], "law_id": c["law_id"] or "",
+                                      "clauses": [], "counts": {}})
+        if not d["law_id"] and c["law_id"]:
+            d["law_id"] = c["law_id"]
+        cl = (c["clause_label"] or "").strip()
+        if cl and cl not in d["clauses"]:
+            d["clauses"].append(cl)
+    for fr in conn.execute(
+            "SELECT law_name, severity, change_type FROM findings WHERE mst=?", (str(mst),)):
+        key = (fr["law_name"] or "").replace(" ", "")
+        if key in law_refs:
+            g = finding_grade(fr["severity"], fr["change_type"])
+            law_refs[key]["counts"][g] = law_refs[key]["counts"].get(g, 0) + 1
     conn.close()
 
     by_art = {}
@@ -213,6 +233,7 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
 
     meta = {k: o[k] for k in o.keys() if k != "body_xml"} if o else {}
     return {"meta": meta, "articles": articles, "local_refs": local_refs,
+            "law_refs": law_refs,
             "recommend": recommend_fragment(mst, db_path, collapsible=True)}
 
 
@@ -458,6 +479,15 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
            padding:1px 7px;font-weight:600;margin-left:4px;}
 .lref .m{font-size:12px;color:#6366f1;margin:4px 0 8px;}
 .lref .x{position:absolute;top:7px;right:10px;cursor:pointer;color:#94a3b8;font-size:16px;}
+/* 상위법령 정보 카드 — 자치법규(인디고)와 구분해 navy 계열 */
+.lref.law{border-color:#bfdbfe;background:#eff6ff;}
+.lref.law .h{color:#1e3a8a;}
+.lref.law .m{color:#334155;}
+.lref .tag.tlaw{background:#dbeafe;color:#1e40af;}
+.lref .rcl{display:inline-block;font-size:11px;background:#fff;border:1px solid #bfdbfe;
+           color:#1e40af;border-radius:5px;padding:0 6px;margin:1px 3px 1px 0;}
+.lref .rsum{font-weight:600;font-size:11.5px;}
+.lref.law .btn{display:inline-block;text-decoration:none;font-size:12px;margin-top:2px;}
 .artsec{scroll-margin-top:8px;}
 .flash{animation:flash 1.4s ease;}
 @keyframes flash{0%{background:#fde68a;}70%{background:#fef3c7;}100%{background:transparent;}}
@@ -514,7 +544,7 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 <script>
 const GO=[]; const GM={};          // grade_order / grade_meta
 const PCLS={mechanical:"p-mech",review:"p-rev",check:"p-chk",format:"p-fmt",current:"p-cur"};
-let OV=null, curDept="", curMst="", curQuery="", cssInjected=false, LOCALREFS={};
+let OV=null, curDept="", curMst="", curQuery="", cssInjected=false, LOCALREFS={}, LAWREFS={};
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function fdate(s){const d=String(s||"").replace(/[^0-9]/g,"").slice(0,8);
@@ -652,7 +682,7 @@ async function selectOrd(mst){
   curMst=mst;
   const d=await getJSON(`/api/ordinance/${encodeURIComponent(mst)}`);
   const r=d.recommend||{}, m=d.meta||{}, arts=d.articles||[];
-  LOCALREFS=d.local_refs||{};
+  LOCALREFS=d.local_refs||{}; LAWREFS=d.law_refs||{};
   if(r.css && !cssInjected){const s=document.createElement("style");
     s.textContent=r.css;document.head.appendChild(s);cssInjected=true;}
   const meta=`시행 ${fdate(m.enforce_date)} · 담당 ${esc(m.dept||"—")}`
@@ -670,7 +700,7 @@ async function selectOrd(mst){
         href="/api/ordinance_report?mst=${encodeURIComponent(mst)}&format=html">📄 분석 권고서(인쇄용)</a>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="dsplit">
-       <div class="dbody"><div class="dcolhd">📄 조례 본문 — <span style="color:#1e3a8a">상위법령 「」</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례(클릭 시 정보)</span></div>${left}</div>
+       <div class="dbody"><div class="dcolhd">📄 조례 본문 — 인용 클릭 시 우측에 정보 · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례</span></div>${left}</div>
        <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div><div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
@@ -685,10 +715,11 @@ function wireFocus(dp){
   // 좌 인용 클릭 → 우 해당 검토항목 펼침 + 강조
   dp.querySelectorAll(".dbody mark[data-law]").forEach(mk=>mk.onclick=()=>{
     if(mk.classList.contains("cite-local")){showLocalRef(mk.dataset.law);return;}
+    // 상위법령 인용 → 우측에 법령 정보 카드(항상) + 검토항목 있으면 펼침/강조
+    showLawRef(mk.dataset.law);
     const it=citem(mk.dataset.oc, mk.dataset.law, mk.dataset.clause);
     if(it){it.open=true; it.classList.add("focus");
       setTimeout(()=>it.classList.remove("focus"),1600); flash(it);}
-    else flash(dp.querySelector(`.drec .artsec[data-oc="${cssq(mk.dataset.oc)}"]`));
   });
   // 우 검토항목 펼침 → 좌 본문의 해당 인용 강조(스크롤 다툼 방지 위해 강조만)
   dp.querySelectorAll(".drec .citem").forEach(it=>it.addEventListener("toggle",()=>{
@@ -716,6 +747,32 @@ function showLocalRef(name){
        <div class="m muted">수집 범위 외 — 군포시 조례가 아니거나 미수집</div>`;
   box.innerHTML=`<div class="lref">${inner}<span class="x" title="닫기"
        onclick="document.getElementById('localref').innerHTML=''">×</span></div>`;
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function showLawRef(name){
+  // 상위법령 인용 클릭 → 우측에 그 법령 간단 정보(인용 조문·판정 요약·국가법령정보센터 링크)
+  const box=document.getElementById("localref"); if(!box)return;
+  const ref=LAWREFS[String(name||"").replace(/\s/g,"")];
+  const law=ref?ref.name:name;
+  const portal=`https://www.law.go.kr/법령/${encodeURIComponent(law)}`;
+  const SEV={mechanical:["기계적","#1d4ed8"],review:["검토","#b45309"],
+    check:["확인","#52525b"],format:["서식","#6d28d9"],current:["변경없음","#15803d"]};
+  let body="";
+  if(ref){
+    const cls=(ref.clauses||[]).slice(0,12).map(c=>`<span class="rcl">${esc(c)}</span>`).join("")
+      +((ref.clauses||[]).length>12?` <span class="muted">외 ${ref.clauses.length-12}</span>`:"");
+    const sum=Object.entries(ref.counts||{}).filter(([,n])=>n)
+      .map(([g,n])=>`<span class="rsum" style="color:${(SEV[g]||['',''])[1]}">${(SEV[g]||[g])[0]} ${n}</span>`).join(" · ")
+      ||'<span class="muted">판정 항목 없음(근거 인용)</span>';
+    body=`<div class="m">인용 조문: ${cls||'<span class="muted">법명만 인용</span>'}</div>
+       <div class="m">판정: ${sum}${ref.law_id?` · <span class="muted">법령ID ${esc(ref.law_id)}</span>`:""}</div>`;
+  }else{
+    body=`<div class="m muted">이 조례에서 인용한 상위법령</div>`;
+  }
+  box.innerHTML=`<div class="lref law"><div class="h">「${esc(law)}」<span class="tag tlaw">상위법령</span></div>
+     ${body}
+     <a class="btn" href="${portal}" target="_blank" rel="noopener">국가법령정보센터에서 보기 ↗</a>
+     <span class="x" title="닫기" onclick="document.getElementById('localref').innerHTML=''">×</span></div>`;
   box.scrollIntoView({behavior:"smooth",block:"nearest"});
 }
 function closeDetail(){curMst="";
