@@ -85,6 +85,29 @@ def test_list_filters():
     os.unlink(path)
 
 
+def test_search_by_name_and_cited_law():
+    """자유검색 q: 조례명 매치 + 인용 법령명 매치(담당과 무관, law_hits 표시)."""
+    path = _make_db()
+    conn = db.connect(path)
+    # '다 조례'(총무과)가 도로교통법을 인용 — 이름엔 없고 인용으로만 걸려야
+    conn.execute("INSERT INTO citations(mst,law_id,law_name,clause_label)"
+                 " VALUES('3','L9','도로교통법','제2조')")
+    conn.commit(); conn.close()
+
+    by_name = list_ordinances(path, q="가")
+    assert {o["mst"] for o in by_name} == {"1"}, by_name        # '가 조례'만
+
+    by_law = list_ordinances(path, q="도로교통법")
+    assert {o["mst"] for o in by_law} == {"3"}, by_law          # 인용으로 매치
+    assert by_law[0]["law_hits"] == ["도로교통법"]               # 매치 법령 표시
+
+    # 이름 매치는 law_hits 비움(이름으로 걸린 건 인용표시 불필요)
+    assert by_name[0].get("law_hits") == []
+    # 정비대상만 병행 — '다 조례'는 현행만(정비 0)이라 제외
+    assert list_ordinances(path, q="도로교통법", action_only=True) == []
+    os.unlink(path)
+
+
 def test_dept_report_filter_and_csv():
     """build_model(dept=) 가 그 과 조례만, model_to_csv 가 그 행만 낸다."""
     path = _make_db()

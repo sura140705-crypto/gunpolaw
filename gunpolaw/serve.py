@@ -98,10 +98,31 @@ def overview(db_path=db.DEFAULT_DB):
     }
 
 
-def list_ordinances(db_path=db.DEFAULT_DB, dept=None, action_only=False):
-    """담당과/정비대상 필터 조례 목록. 정비 항목 많은 순 → 이름 순."""
+def list_ordinances(db_path=db.DEFAULT_DB, dept=None, action_only=False, q=None):
+    """담당과/정비대상 필터 조례 목록. 정비 항목 많은 순 → 이름 순.
+
+    q(자유검색): 조례명 또는 '인용한 상위법령명'에 q가 포함된 조례. 담당과는 무시(교차검색).
+    인용 법령으로 걸린 경우 law_hits 에 매치된 법령명을 담아 표시한다.
+    """
     ords = _scan(db_path)
-    if dept:
+    q = (q or "").strip()
+    if q:
+        qn = q.replace(" ", "")
+        conn = db.connect(db_path)
+        law_hits = {}                      # mst -> [매치된 인용 법령명…]
+        for r in conn.execute(
+                "SELECT DISTINCT mst, law_name FROM citations WHERE law_name LIKE ?",
+                (f"%{q}%",)):
+            law_hits.setdefault(r["mst"], []).append(r["law_name"])
+        conn.close()
+        sel = []
+        for o in ords:
+            in_name = qn in (o["name"] or "").replace(" ", "")
+            hits = law_hits.get(o["mst"], [])
+            if in_name or hits:
+                sel.append({**o, "law_hits": hits if not in_name else []})
+        ords = sel
+    elif dept:
         ords = [o for o in ords if o["dept"] == dept]
     if action_only:
         ords = [o for o in ords if o["items_count"] > 0]
@@ -228,8 +249,9 @@ class _Handler(BaseHTTPRequestHandler):
                 q = parse_qs(u.query)
                 dept = (q.get("dept") or [None])[0] or None
                 action = (q.get("action") or ["0"])[0] in ("1", "true", "yes")
+                query = (q.get("q") or [None])[0] or None
                 return self._json(list_ordinances(self.db_path, dept=dept,
-                                                  action_only=action))
+                                                  action_only=action, q=query))
             if path.startswith("/api/ordinance/"):
                 mst = path.rsplit("/", 1)[-1]
                 return self._json(ordinance_detail(self.db_path, mst))
@@ -332,6 +354,10 @@ h1{font-size:22px;margin:0 0 2px;}
 .g-mech .n{color:var(--mech);}.g-rev .n{color:var(--rev);}.g-chk .n{color:var(--chk);}
 .g-fmt .n{color:var(--fmt);}.g-cur .n{color:var(--cur);}
 .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 14px;}
+.controls #searchBox{font-size:14px;padding:6px 12px;border:1px solid #d1d5db;border-radius:8px;
+  min-width:260px;outline:none;}
+.controls #searchBox:focus{border-color:#2563eb;box-shadow:0 0 0 2px #bfdbfe;}
+td .lawhit{display:block;font-size:11.5px;color:#2563eb;margin-top:2px;}
 .controls select{font-size:14px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;
                  background:#fff;min-width:220px;}
 .controls label{font-size:13px;color:#374151;display:flex;gap:5px;align-items:center;}
@@ -437,6 +463,7 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
   <div class="cards" id="cards"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
+    <input type="search" id="searchBox" placeholder="🔍 조례명·인용 법령 검색" autocomplete="off">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
     <label><input type="checkbox" id="actChk"> 정비 대상만</label>
     <span class="crumb" id="crumb"></span>
@@ -449,7 +476,7 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 <script>
 const GO=[]; const GM={};          // grade_order / grade_meta
 const PCLS={mechanical:"p-mech",review:"p-rev",check:"p-chk",format:"p-fmt",current:"p-cur"};
-let OV=null, curDept="", curMst="", cssInjected=false, LOCALREFS={};
+let OV=null, curDept="", curMst="", curQuery="", cssInjected=false, LOCALREFS={};
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function fdate(s){const d=String(s||"").replace(/[^0-9]/g,"").slice(0,8);
@@ -560,6 +587,26 @@ async function renderOrdList(){
     tr.onclick=()=>{selectOrd(tr.dataset.mst);});
 }
 
+async function renderSearch(){
+  // 자유검색 결과(담당과 교차) — 조례명 또는 인용 법령명 매치. 담당과 컬럼 표시.
+  const act=document.getElementById("actChk").checked?"&action=1":"";
+  const list=await getJSON(`/api/ordinances?q=${encodeURIComponent(curQuery)}${act}`);
+  if(!list.length){document.getElementById("listPanel").innerHTML=
+    `<div class="empty">'${esc(curQuery)}' 검색 결과 없음.</div>`;return;}
+  let rows=list.map(o=>{
+    const hit=(o.law_hits&&o.law_hits.length)
+      ?`<span class="lawhit">↳ 인용 법령: ${esc(o.law_hits.slice(0,3).join(", "))}${o.law_hits.length>3?" 외 "+(o.law_hits.length-3):""}</span>`:"";
+    return `<tr data-mst="${esc(o.mst)}">
+     <td>${esc(o.name)}${hit}</td><td class="muted">${esc(o.dept)}</td>
+     <td class="muted">${fdate(o.enforce_date)}</td>
+     <td class="num">${o.items_count}</td><td class="dist">${dist(o.grades)}</td></tr>`;}).join("");
+  document.getElementById("listPanel").innerHTML=
+    `<table><thead><tr><th>조례 (${list.length})</th><th>담당과</th><th>시행일</th>
+     <th class="num">정비</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table>`;
+  document.querySelectorAll("#listPanel tr[data-mst]").forEach(tr=>
+    tr.onclick=()=>{selectOrd(tr.dataset.mst);});
+}
+
 function flash(el){if(!el)return;el.classList.remove("flash");void el.offsetWidth;
   el.classList.add("flash");el.scrollIntoView({behavior:"smooth",block:"center"});}
 
@@ -637,11 +684,16 @@ function closeDetail(){curMst="";
 
 function selectDept(dept){
   curDept=dept;
+  if(curQuery){curQuery="";document.getElementById("searchBox").value="";}  // 과 선택 시 검색 해제
   document.getElementById("deptSel").value=dept;
   refresh();
 }
+function clearSearch(){
+  document.getElementById("searchBox").value=""; curQuery=""; refresh();
+}
 function renderCrumb(){
   const c=document.getElementById("crumb");
+  if(curQuery){c.innerHTML=`<a onclick="clearSearch()">← 검색 해제</a> · <b>검색 “${esc(curQuery)}”</b>`;return;}
   if(!curDept){c.innerHTML="";return;}
   const dq=encodeURIComponent(curDept);
   c.innerHTML=`<a onclick="selectDept('')">← 전체 담당과</a> · <b>${esc(curDept)}</b>`
@@ -651,7 +703,8 @@ function renderCrumb(){
 async function refresh(){
   closeDetail();
   renderCrumb();
-  if(curDept) await renderOrdList(); else renderDeptTable();
+  if(curQuery) await renderSearch();
+  else if(curDept) await renderOrdList(); else renderDeptTable();
 }
 
 async function init(){
@@ -659,7 +712,15 @@ async function init(){
   GO.push(...OV.grade_order); Object.assign(GM,OV.grade_meta);
   renderBanner(); renderCards(); fillDeptSelect(); renderChanges();
   document.getElementById("deptSel").onchange=e=>selectDept(e.target.value);
-  document.getElementById("actChk").onchange=()=>{if(curDept)renderOrdList();};
+  document.getElementById("actChk").onchange=()=>{
+    if(curQuery)renderSearch();else if(curDept)renderOrdList();};
+  const sb=document.getElementById("searchBox");
+  let _t=null;
+  sb.oninput=()=>{clearTimeout(_t);_t=setTimeout(()=>{
+    const v=sb.value.trim();
+    if(v===curQuery)return;
+    curQuery=v; refresh();
+  },200);};
   refresh();
 }
 init();
