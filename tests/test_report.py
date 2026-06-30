@@ -205,6 +205,31 @@ def test_model_to_csv():
     assert "2019-01-01" in lines[1] and "2021-01-01" in lines[1]   # 기준일
 
 
+def test_ordinance_body_citation_underline():
+    """조례 본문에 인용(법령/타조례) 위치가 citations span 으로 밑줄 표기된다."""
+    import tempfile
+    from gunpolaw import db
+    from gunpolaw.report import _highlight_ordtext
+    # 단위: span 으로 「노인복지법」 부분만 mark
+    body = "이 조례는 「노인복지법」 제35조에 따른다."
+    from gunpolaw.extract import normalize_text
+    t = normalize_text(body)
+    s = t.index("「노인복지법」"); e = s + len("「노인복지법」 제35조")
+    h = _highlight_ordtext(body, [{"span_start": s, "span_end": e, "law_name": "노인복지법",
+                                   "clause_label": "제35조", "cite_type": "법령", "cite_naked": 0}])
+    assert '<mark class="cite-law"' in h and "노인복지법" in h, h
+    assert h.count("<mark") == 1                    # 인용 1건만 표기
+
+    # 타 자치법규 인용은 cite-local
+    h2 = _highlight_ordtext("「군포시 다른 조례」 제2조 참조", [
+        {"span_start": 0, "span_end": len("「군포시 다른 조례」 제2조"),
+         "law_name": "군포시 다른 조례", "clause_label": "제2조",
+         "cite_type": "자치법규", "cite_naked": 0}])
+    assert 'class="cite-local"' in h2, h2
+    # 인용 없으면 평문(이스케이프만)
+    assert _highlight_ordtext("「민법」 제1조", []) == "「민법」 제1조"
+
+
 def test_write_ordinance_report():
     """조례 1건 권고서 — 현행(변경 없음)까지 포함해 '인용 전건 분석'을 보여준다."""
     import tempfile

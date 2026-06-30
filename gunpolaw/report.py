@@ -21,6 +21,7 @@ from datetime import datetime
 
 from . import db
 from .parse import parse_ordinance_body
+from .extract import normalize_text
 
 
 # ---------- 등급 도출 ----------
@@ -222,19 +223,37 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
            {where}
            ORDER BY f.law_name, f.clause_label""", args
     ).fetchall()
-    # 조례 본문(조문별 텍스트) — 권고에 '무엇을 고칠지' 조례 원문을 함께 보여주기 위함
+    # 조례 본문(조문별 텍스트) — 권고에 '무엇을 고칠지' 조례 원문을 함께 보여주기 위함.
+    # 인용(법령/조례) 위치는 citations span 으로 밑줄 표기(articles_html).
     msts = {r["mst"] for r in rows}
-    body_articles = {}
+    body_articles, body_html = {}, {}
     if msts:
         qm = ",".join("?" * len(msts))
+        cites_by = {}                       # (mst, 조문) → [인용 span…]
+        ccols = [c[1] for c in conn.execute("PRAGMA table_info(citations)")]
+        if "span_start" in ccols:
+            for cr in conn.execute(
+                    f"""SELECT mst, article_no, law_name, clause_label, span_start,
+                              span_end, cite_naked, cite_type
+                        FROM citations WHERE mst IN ({qm})""", list(msts)):
+                cites_by.setdefault((cr["mst"], cr["article_no"] or ""), []).append(dict(cr))
         for br in conn.execute(
                 f"SELECT mst, body_xml FROM ordinances WHERE mst IN ({qm})", list(msts)):
             if not br["body_xml"]:
                 continue
             parsed = parse_ordinance_body(br["body_xml"])
-            if "error" not in parsed:
-                body_articles[br["mst"]] = {
-                    a["no"]: a.get("body", "") for a in parsed["articles"] if a.get("no")}
+            if "error" in parsed:
+                continue
+            txt, htm = {}, {}
+            for a in parsed["articles"]:
+                no = a.get("no")
+                if not no:
+                    continue
+                body = a.get("body", "")
+                txt[no] = body
+                htm[no] = _highlight_ordtext(body, cites_by.get((br["mst"], no), []))
+            body_articles[br["mst"]] = txt
+            body_html[br["mst"]] = htm
     conn.close()
 
     by_mst = {}
@@ -250,6 +269,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
             "grades": {k: 0 for k in GRADE_KEYS},
             "items": [],
             "articles_text": body_articles.get(r["mst"], {}),
+            "articles_html": body_html.get(r["mst"], {}),
         })
         o["grades"][g] += 1
         if g != "current":
@@ -366,6 +386,17 @@ details.citem.focus { box-shadow:inset 3px 0 0 #2563eb; }
            border-left:3px solid #94a3b8; border-radius:6px; padding:7px 10px; margin:4px 0 8px;
            white-space:pre-wrap; line-height:1.6; }
 .ordtext b { color:#0f172a; margin-right:4px; }
+mark.cite-law { background:#eff6ff; color:#1e3a8a;
+   text-decoration:underline; text-decoration-color:#2563eb; text-underline-offset:2px;
+   border-radius:2px; padding:0 1px; }
+mark.cite-naked { background:#f5f3ff; color:#5b21b6;
+   text-decoration:underline dashed; text-decoration-color:#7c3aed; text-underline-offset:2px;
+   border-radius:2px; padding:0 1px; }
+mark.cite-local { background:#f1f5f9; color:#475569;
+   text-decoration:underline dotted; text-decoration-color:#94a3b8; text-underline-offset:2px;
+   border-radius:2px; padding:0 1px; }
+.leg { font-size:12px; color:#6b7280; margin:0 0 18px; display:flex; gap:14px; flex-wrap:wrap; }
+.leg mark { padding:0 4px; border-radius:2px; }
 .item .ev { font-size:12px; color:#6b7280; white-space:pre-wrap;
             background:#f9fafb; border-radius:6px; padding:7px 9px; margin-top:6px; }
 .diff { border:1px solid #eef0f3; border-radius:6px; overflow:hidden; margin-top:6px; }
@@ -383,13 +414,44 @@ footer { color:#9ca3af; font-size:12px; margin-top:32px; text-align:center; }
 @media print {
   body { background:#fff; } .page { max-width:none; padding:0; }
   .ord, .card { border-color:#d1d5db; }
-  mark.d, mark.i, mark.pt { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  mark.d, mark.i, mark.pt,
+  .ordtext mark { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 """
 
 
 def _esc(s):
     return html.escape(str(s or ""))
+
+
+def _highlight_ordtext(body, cites):
+    """조례 조문 본문에 인용(법령/조례) 위치를 <mark>로 표기(밑줄). span은 citations 의
+    normalize_text(본문) 기준 offset이라 같은 정규화 텍스트에 적용한다. 인용 없으면 평문.
+
+    cite-law=상위법령(파랑 밑줄)·cite-naked=꺽쇠 누락 서식결함(보라 점선)·
+    cite-local=타 자치법규(회색 밑줄). 대시보드 통합뷰와 같은 분류·색 계열.
+    """
+    text = normalize_text(body)
+    if not cites:
+        return _esc(text)
+    spans = sorted(cites, key=lambda c: (c.get("span_start") or 0, c.get("span_end") or 0))
+    out, pos, n = [], 0, len(text)
+    for c in spans:
+        s, e = c.get("span_start") or 0, c.get("span_end") or 0
+        if s < pos or e > n or s >= e:            # 겹침/이상치 방어
+            continue
+        out.append(_esc(text[pos:s]))
+        if c.get("cite_type") == "자치법규":
+            cls = "cite-local"
+        elif c.get("cite_naked"):
+            cls = "cite-naked"
+        else:
+            cls = "cite-law"
+        title = (c.get("law_name") or "") + (c.get("clause_label") or "")
+        out.append(f'<mark class="{cls}" title="{_esc(title)}">{_esc(text[s:e])}</mark>')
+        pos = e
+    out.append(_esc(text[pos:]))
+    return "".join(out)
 
 
 def _card(summary, key, title):
@@ -486,10 +548,12 @@ def _ord_block(o, collapsible=False):
         sections.append((cur_art, buf))
 
     atext = o.get("articles_text") or {}
+    ahtml = o.get("articles_html") or {}
     secs_html = []
     for art, group in sections:
         body = "".join(_item_block(it, collapsible) for it in group)
-        # 조례 원문은 평면(독립 권고서)에서만 — 대시보드(collapsible)는 좌측 본문이 대신함
+        # 조례 원문은 평면(독립 권고서)에서만 — 대시보드(collapsible)는 좌측 본문이 대신함.
+        # 인용(법령/조례) 위치는 밑줄 표기(articles_html). 구 모델 호환 시 평문으로 폴백.
         ord_src = ""
         if not collapsible:
             labels = []
@@ -499,8 +563,9 @@ def _ord_block(o, collapsible=False):
                     if a and a not in labels:
                         labels.append(a)
             ord_src = "".join(
-                f'<div class="ordtext"><b>{_esc(a)}</b> {_esc(atext.get(a, ""))}</div>'
-                for a in labels if atext.get(a))
+                f'<div class="ordtext"><b>{_esc(a)}</b> '
+                f'{ahtml.get(a) or _esc(atext.get(a, ""))}</div>'
+                for a in labels if (ahtml.get(a) or atext.get(a)))
         secs_html.append(
             f'<div class="artsec" data-oc="{_esc(art)}">'
             f'<div class="arthd">조례 {_esc(art)}</div>{ord_src}{body}</div>')
@@ -522,11 +587,16 @@ def render_html(model, generated_at="", title="자치법규 정비 권고서"):
     blocks = "".join(_ord_block(o) for o in model["ordinances"])
     sub = (f'전체 {s["ordinances_total"]}개 조례 중 '
            f'정비 대상 {s["ordinances_action"]}개 · 생성 {_esc(generated_at)}')
+    legend = (
+        '<div class="leg">본문 밑줄 = 인용 표기 · '
+        '<span><mark class="cite-law">상위법령</mark></span>'
+        '<span><mark class="cite-local">타 자치법규</mark></span>'
+        '<span><mark class="cite-naked">꺽쇠(「」) 누락</mark></span></div>')
     return (
         "<!DOCTYPE html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
         f"<title>{_esc(title)}</title><style>{_CSS}</style></head><body>"
         f'<div class="page"><h1>{_esc(title)}</h1><div class="sub">{sub}</div>'
-        f'<div class="cards">{cards}</div>{blocks}'
+        f'<div class="cards">{cards}</div>{legend}{blocks}'
         '<footer>본 권고서는 인용 조항의 시점·내용 비교로 자동 생성된 초안이며, '
         '최종 개정 판단은 담당 부서의 검토를 따릅니다.</footer>'
         "</div></body></html>")
