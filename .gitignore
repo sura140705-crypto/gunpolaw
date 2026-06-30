@@ -56,3 +56,7 @@ inspect_*.txt
 gunpolaw_test.zip
 *.zip
 gunpolaw_share.db
+
+# export-share zip 풀어본 테스트 산출물 (스크래치)
+_ziptest/
+_share_slim.db
