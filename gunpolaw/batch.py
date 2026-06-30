@@ -192,10 +192,13 @@ def _classify_affected(conn, law_id, mode, changed_labels):
 
 def detect_law_changes(conn, old_keys):
     """직전 스냅샷의 버전키(old_keys: {law_id: version_key}) 대비 바뀐 법령을
-    law_changes 에 적재. 영향 조례는 '바뀐 조문을 인용했는지'까지 따져 정밀 집계한다.
+    law_changes(휘발·직전델타) 와 law_change_log(영속·누적) 에 적재.
+    영향 조례는 '바뀐 조문을 인용했는지'까지 따져 정밀 집계한다.
     반환: 감지된 개정 건수.
 
     첫 베이스라인(old_key 없음)·신규 수집 법령은 '개정'으로 보지 않는다(거짓 대량감지 방지).
+    law_change_log 는 (law_id,new_key)별 1행 — INSERT OR IGNORE 라 이미 감지된 개정의
+    acked(검토완료)·first_detected_at 는 재배치해도 보존된다(소멸 방지).
     """
     conn.execute("DELETE FROM law_changes")
     changed = 0
@@ -217,21 +220,34 @@ def detect_law_changes(conn, old_keys):
             (lid, r["name"], okey, nkey, k.get("enforce_date", ""),
              k.get("revise_type", ""), ca, len(cls["affected"]),
              len(cls["uncertain"]), _now()))
+        # 영속 로그 누적 — 기존 행(검토완료 포함)은 IGNORE 로 보존
+        conn.execute(
+            """INSERT OR IGNORE INTO law_change_log
+               (law_id, name, old_key, new_key, new_enforce, revise_type,
+                changed_articles, first_detected_at, acked, acked_at)
+               VALUES (?,?,?,?,?,?,?,?,0,NULL)""",
+            (lid, r["name"], okey, nkey, k.get("enforce_date", ""),
+             k.get("revise_type", ""), ca, _now()))
         changed += 1
     conn.commit()
     return changed
 
 
-def law_changes_report(db_path=db.DEFAULT_DB):
-    """감지된 법령 개정 + 영향 조례(조문 매칭). 해당 많은 순.
+def law_changes_report(db_path=db.DEFAULT_DB, include_acked=False):
+    """감지된 법령 개정(영속 로그) + 영향 조례(조문 매칭). 미검토 우선·해당 많은 순.
 
-    각 항목: {…law_changes 행…, "affected":[{mst,name,dept,clauses}],
-              "uncertain":[{mst,name,dept}]}
+    law_change_log(누적·소멸 안 함)를 출처로 하여 배치 사이에도 미검토 개정이 유지된다.
+    include_acked=False(기본): 검토완료(acked) 제외 — 알림은 '처리할 것'만.
+    각 항목: {…law_change_log 행(acked/acked_at 포함)…,
+              "affected":[{mst,name,dept,clauses}], "uncertain":[{mst,name,dept}]}
     """
+    db.init_db(db_path)               # 레거시 DB 호환: law_change_log 보장
     conn = db.connect(db_path)
+    where = "" if include_acked else "WHERE acked = 0"
     out = []
     for r in conn.execute(
-            "SELECT * FROM law_changes ORDER BY affected_n DESC, uncertain_n DESC, name"):
+            f"SELECT * FROM law_change_log {where} "
+            "ORDER BY acked, first_detected_at DESC, name"):
         ca = r["changed_articles"]
         if ca == "*":
             mode, labels = "full", None
@@ -242,7 +258,32 @@ def law_changes_report(db_path=db.DEFAULT_DB):
         cls = _classify_affected(conn, r["law_id"], mode, labels)
         out.append({**dict(r), **cls})
     conn.close()
+    # 미검토 안에서 해당 많은 순으로 재정렬(상단 가시성) — 검토완료는 뒤로
+    out.sort(key=lambda d: (d["acked"], -len(d["affected"]), -len(d["uncertain"])))
     return out
+
+
+def ack_law_change(law_id, new_key=None, acked=True, db_path=db.DEFAULT_DB):
+    """개정 1건을 검토완료/해제로 표시. new_key 미지정 시 해당 법령의 전체 이력에 적용.
+
+    반환: 변경된 행 수.
+    """
+    db.init_db(db_path)               # 레거시 DB 호환: law_change_log 보장
+    conn = db.connect(db_path)
+    val = 1 if acked else 0
+    at = _now() if acked else None
+    if new_key:
+        cur = conn.execute(
+            "UPDATE law_change_log SET acked=?, acked_at=? WHERE law_id=? AND new_key=?",
+            (val, at, law_id, new_key))
+    else:
+        cur = conn.execute(
+            "UPDATE law_change_log SET acked=?, acked_at=? WHERE law_id=?",
+            (val, at, law_id))
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n
 
 
 def run_batch(org=None, sborg=None, limit=None,
@@ -388,8 +429,8 @@ def report(db_path=db.DEFAULT_DB, severities=("mechanical", "review", "check")):
 def export_share(db_path=db.DEFAULT_DB, out_zip="gunpolaw_테스트.zip", verbose=True):
     """조원 테스트용 올인원 zip 생성 — 코드 + 슬림 DB + 안내문.
 
-    대시보드(serve/report)는 ordinances·citations·findings·batch_meta·law_changes 만
-    읽으므로, --reparse 재분석 전용인 laws/law_versions/law_articles body_xml(파일의
+    대시보드(serve/report)는 ordinances·citations·findings·batch_meta·law_change_log
+    만 읽으므로, --reparse 재분석 전용인 laws/law_versions/law_articles body_xml(파일의
     대부분)을 비운 슬림 DB(약 14MB, gunpolaw.db 이름으로 동봉)면 화면은 100% 동일.
     조원은 zip 하나만 풀어 `python -m gunpolaw --serve` 하면 된다(키·네트워크 불요).
     """

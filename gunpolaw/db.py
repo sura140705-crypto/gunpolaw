@@ -64,6 +64,23 @@ CREATE TABLE IF NOT EXISTS law_changes (
     detected_at     TEXT
 );
 
+-- 개정 이력(영속·append-only) : law_changes 는 매 배치 통째로 비워져 '직전 1회 델타'만
+-- 남지만, 이 로그는 감지된 개정을 (law_id,new_key)별 1행으로 누적해 배치 사이에 소멸하지
+-- 않는다. 주1회 운영하는 총괄이 검토 전 재배치로 알림을 잃지 않도록. acked=검토완료 표시.
+CREATE TABLE IF NOT EXISTS law_change_log (
+    law_id           TEXT,
+    name             TEXT,
+    old_key          TEXT,
+    new_key          TEXT,          -- (law_id,new_key)=개정 1건. 후속 개정은 새 행으로 누적
+    new_enforce      TEXT,
+    revise_type      TEXT,
+    changed_articles TEXT,          -- 바뀐 조문 라벨(콤마). '*'=전부개정, ''=판별불가
+    first_detected_at TEXT,         -- 최초 감지 배치 시점
+    acked            INTEGER DEFAULT 0,  -- 검토완료(총괄이 처리 표시)
+    acked_at         TEXT,
+    PRIMARY KEY (law_id, new_key)
+);
+
 -- 법령 조문 단위(변경 판정의 핵심) : 법령 본문 파싱
 CREATE TABLE IF NOT EXISTS law_articles (
     law_id       TEXT,

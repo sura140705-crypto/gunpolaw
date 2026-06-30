@@ -21,7 +21,8 @@ def main(argv):
         print("       (--deep=내용diff 확정 · --incr=무한재사용 · --max-age D=D일 신선도)")
         print("  python -m gunpolaw <MST> [--deep]        조례 1건(--deep=2단계)")
         print("  python -m gunpolaw --report             저장 결과 집계")
-        print("  python -m gunpolaw --changes            감지된 법령 개정 → 영향 조례(역추적)")
+        print("  python -m gunpolaw --changes [--all]    법령 개정 → 영향 조례(역추적, 미검토만/전체)")
+        print("  python -m gunpolaw --ack <law_id>        개정 검토완료 표시(--unack=해제)")
         print("  python -m gunpolaw --recommend [경로]   개정 권고서 HTML 생성(3단계)")
         print("  python -m gunpolaw --serve [포트]       총괄 대시보드 서빙(읽기전용, 기본 8765)")
         print("  python -m gunpolaw --reparse            영속 body_xml로 재파싱(라이브 API 0)")
@@ -66,15 +67,21 @@ def main(argv):
 
     if argv[0] == "--changes":
         from .batch import law_changes_report
-        rows = law_changes_report()
+        show_all = "--all" in argv          # 검토완료 포함 전체 이력
+        rows = law_changes_report(include_acked=show_all)
         if not rows:
-            print("감지된 법령 개정 없음(전체 재수집 후 직전 스냅샷 대비 변화 기준).")
+            msg = ("개정 이력 없음." if show_all else
+                   "미검토 개정 없음(전체는 --changes --all). 직전 스냅샷 대비 변화 기준.")
+            print(msg)
             return 0
-        print(f"=== 법령 개정 감지 {len(rows)}건 (바뀐 조문 ↔ 인용 조문 매칭) ===")
+        scope = "전체 이력" if show_all else "미검토"
+        print(f"=== 법령 개정 {scope} {len(rows)}건 (바뀐 조문 ↔ 인용 조문 매칭) ===")
+        print("   (검토완료 표시: python -m gunpolaw --ack <law_id>)")
         for r in rows:
             ca = r["changed_articles"]
             chg = "전부개정" if ca == "*" else ("판별불가" if not ca else f"바뀐 조문 {ca}")
-            print(f"\n「{r['name']}」 {r['old_key']} → {r['new_key']} "
+            mark = "✓검토완료 " if r["acked"] else ""
+            print(f"\n{mark}「{r['name']}」 [{r['law_id']}] {r['old_key']} → {r['new_key']} "
                   f"[{r['revise_type']}, 시행 {r['new_enforce']}] · {chg}")
             print(f"   해당 {len(r['affected'])}건 · 확인필요 {len(r['uncertain'])}건")
             for o in r["affected"]:
@@ -82,6 +89,19 @@ def main(argv):
                 print(f"    [해당] {o['name']} ({o['dept'] or '미지정'}) ← 인용 {cl}")
             for o in r["uncertain"]:
                 print(f"    [확인] {o['name']} ({o['dept'] or '미지정'}) ← 법명만 인용")
+        return 0
+
+    if argv[0] in ("--ack", "--unack"):
+        from .batch import ack_law_change
+        rest = [a for a in argv[1:] if not a.startswith("--")]
+        if not rest:
+            print("사용법: python -m gunpolaw --ack <law_id> [new_key]  (--unack=해제)")
+            return 1
+        law_id = rest[0]
+        new_key = rest[1] if len(rest) > 1 else None
+        n = ack_law_change(law_id, new_key=new_key, acked=(argv[0] == "--ack"))
+        verb = "검토완료" if argv[0] == "--ack" else "검토완료 해제"
+        print(f"{verb} 표시: {n}건 (law_id={law_id}{', '+new_key if new_key else ''})")
         return 0
 
     if argv[0] == "--serve":

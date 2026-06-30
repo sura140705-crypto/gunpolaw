@@ -235,7 +235,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(ordinance_detail(self.db_path, mst))
             if path == "/api/changes":
                 from .batch import law_changes_report
-                return self._json(law_changes_report(self.db_path))
+                q = parse_qs(u.query)
+                allf = (q.get("all") or ["0"])[0] in ("1", "true", "yes")
+                return self._json(law_changes_report(self.db_path, include_acked=allf))
             if path == "/api/dept_report":
                 q = parse_qs(u.query)
                 dept = (q.get("dept") or [""])[0]
@@ -243,6 +245,31 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._dept_report(dept, fmt)
             return self._json({"error": "not found", "path": path}, status=404)
         except Exception as e:  # 서빙은 죽지 않게 — 오류도 JSON으로
+            return self._json({"error": type(e).__name__, "detail": str(e)},
+                              status=500)
+
+    def do_POST(self):
+        """운영자 액션(로컬 DB 쓰기) — 라이브 API·키 불요. 현재 개정 검토완료 표시뿐.
+
+        읽기전용 서빙 원칙은 '라이브 API/재수집 없음'을 뜻하며, 총괄이 자기 DB에 다는
+        검토완료 표시는 그 경계를 넘지 않는다(네트워크 0, 키 0).
+        """
+        u = urlparse(self.path)
+        try:
+            if u.path == "/api/ack":
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw or b"{}")
+                law_id = body.get("law_id")
+                if not law_id:
+                    return self._json({"error": "law_id 필요"}, status=400)
+                from .batch import ack_law_change
+                n = ack_law_change(law_id, new_key=body.get("new_key"),
+                                   acked=bool(body.get("acked", True)),
+                                   db_path=self.db_path)
+                return self._json({"ok": True, "updated": n})
+            return self._json({"error": "not found", "path": u.path}, status=404)
+        except Exception as e:
             return self._json({"error": type(e).__name__, "detail": str(e)},
                               status=500)
 
@@ -395,6 +422,14 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .changes .ords a:hover{background:#fee2e2;}
 .changes .ords a .cl{color:#dc2626;font-weight:600;font-size:11px;}
 .changes .none{font-size:12px;color:#9ca3af;margin:6px 0 0;}
+.changes .chall{margin-left:14px;font-weight:400;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;}
+.changes .law.acked{opacity:.55;}
+.changes .ackb{float:right;font-size:11.5px;border:1px solid #dc2626;color:#dc2626;background:#fff;
+  border-radius:7px;padding:2px 10px;cursor:pointer;font-weight:600;}
+.changes .ackb:hover{background:#fee2e2;}
+.changes .ackb.done{border-color:#16a34a;color:#16a34a;}
+.changes .ackb.done:hover{background:#dcfce7;}
+.changes .ackb:disabled{opacity:.5;cursor:default;}
 </style></head>
 <body><div class="wrap">
   <h1>자치법규 정비 — 총괄 대시보드</h1>
@@ -440,11 +475,12 @@ function renderBanner(){
     +` · 조례 ${b.ordinances_n||OV.totals.ordinances} · 법령 ${b.laws_n||"—"} · 판정 ${b.findings_n||"—"}건`
     +` · 담당과 ${OV.totals.depts}개 · <span class="muted">읽기전용(라이브 API 0)</span>`;
 }
+let CHANGES_ALL=false;     // 검토완료 포함 보기 토글
 async function renderChanges(){
-  // 상위법 개정 → 영향 조례 역추적 알림. 개정 0건이면 숨김.
+  // 상위법 개정 → 영향 조례 역추적 알림. 미검토 0건이면 숨김.
   const box=document.getElementById("changes");
   let ch=[];
-  try{ch=await getJSON("/api/changes");}catch(e){ch=[];}
+  try{ch=await getJSON("/api/changes"+(CHANGES_ALL?"?all=1":""));}catch(e){ch=[];}
   if(!ch||!ch.length){box.style.display="none";box.innerHTML="";return;}
   let nAff=0,nUnc=0; ch.forEach(c=>{nAff+=(c.affected||[]).length;nUnc+=(c.uncertain||[]).length;});
   const chip=o=>`<a data-mst="${esc(o.mst)}" title="${esc(o.dept||"")}">${esc(o.name)}`
@@ -458,20 +494,35 @@ async function renderChanges(){
     const uncHtml=unc.length?`<div class="grp"><span class="lbl unc">확인 ${unc.length}</span>
         <div class="ords">${unc.map(chip).join("")}</div></div>`:"";
     const empty=(!aff.length&&!unc.length)?'<div class="none">바뀐 조문을 인용한 조례 없음(무관)</div>':"";
-    return `<div class="law"><span class="lname">「${esc(c.name)}」</span>
+    const ackBtn=c.acked
+      ?`<button class="ackb done" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="0">✓ 검토완료 (해제)</button>`
+      :`<button class="ackb" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="1">검토완료 표시</button>`;
+    return `<div class="law${c.acked?" acked":""}"><span class="lname">「${esc(c.name)}」</span>
       <span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)} · ${caTxt}</span>
-      ${affHtml}${uncHtml}${empty}</div>`;
+      ${ackBtn}${affHtml}${uncHtml}${empty}</div>`;
   }).join("");
-  box.innerHTML=`<div class="chd"><span class="badge">🔔 ${ch.length}</span>
+  const nOpen=ch.filter(c=>!c.acked).length;
+  box.innerHTML=`<div class="chd"><span class="badge">🔔 ${nOpen}</span>
      법령 개정 감지 — 해당 조례 ${nAff}건 · 확인 ${nUnc}건
      <span class="muted" style="font-weight:400">· 조례 클릭 시 상세</span>
+     <label class="muted chall"><input type="checkbox" id="chAll"${CHANGES_ALL?" checked":""}> 검토완료 포함</label>
      <span class="arr">▸</span></div>
      <div class="clist">${laws}</div>`;
   box.style.display="block";
   box.classList.add("open");
-  box.querySelector(".chd").onclick=()=>box.classList.toggle("open");
+  box.querySelector(".chd").onclick=e=>{if(e.target.id!=="chAll")box.classList.toggle("open");};
+  box.querySelector("#chAll").onclick=e=>{e.stopPropagation();CHANGES_ALL=e.target.checked;renderChanges();};
   box.querySelectorAll(".ords a[data-mst]").forEach(a=>
     a.onclick=()=>selectOrd(a.dataset.mst));
+  box.querySelectorAll(".ackb").forEach(b=>b.onclick=async e=>{
+    e.stopPropagation();
+    b.disabled=true;
+    try{
+      await fetch("/api/ack",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({law_id:b.dataset.law,new_key:b.dataset.key,acked:b.dataset.ack==="1"})});
+    }catch(err){}
+    renderChanges();
+  });
 }
 function fillDeptSelect(){
   const sel=document.getElementById("deptSel");
