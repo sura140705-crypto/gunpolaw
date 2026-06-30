@@ -28,6 +28,7 @@ def main(argv):
         print("  python -m gunpolaw --serve [포트]       총괄 대시보드 서빙(읽기전용, 기본 8765)")
         print("  python -m gunpolaw --reparse            영속 body_xml로 재파싱(라이브 API 0)")
         print("  python -m gunpolaw --export-share [zip] 조원 공유용 올인원 zip(코드+슬림DB)")
+        print("  python -m gunpolaw --export-static [폴더] 정적 사이트(서버 없이 호스팅·읽기전용)")
         print("  (배치/권고는 LAW_OC_KEY 필요 · --serve/--reparse 는 DB만 쓰므로 키 불요)")
         return 1
 
@@ -56,6 +57,13 @@ def main(argv):
     if argv[0] == "--report":
         from .batch import report
         report()
+        return 0
+
+    if argv[0] == "--export-static":
+        from .serve import export_static
+        rest = [a for a in argv[1:] if not a.startswith("--")]
+        r = export_static(out_dir=rest[0] if rest else "site")
+        print(f"  조례 {r['ordinances']}건 · 파일 {r['files']}개 → {r['out']}")
         return 0
 
     if argv[0] == "--export-share":

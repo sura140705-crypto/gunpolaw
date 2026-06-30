@@ -108,6 +108,33 @@ def test_search_by_name_and_cited_law():
     os.unlink(path)
 
 
+def test_export_static_site():
+    """정적 사이트 산출 — index(STATIC=true)·api json·조례별 상세/권고서 생성."""
+    import tempfile, shutil, json
+    from gunpolaw.serve import export_static
+    path = _make_db()
+    conn = db.connect(path)
+    conn.execute("INSERT INTO citations(mst,article_no,law_name,law_id,clause_label,cite_type)"
+                 " VALUES('1','제1조','건축법','000111','제2조','법령')")
+    conn.commit(); conn.close()
+    out = tempfile.mkdtemp()
+    try:
+        r = export_static(out_dir=out, db_path=path, verbose=False)
+        assert r["ordinances"] == 3
+        idx = open(os.path.join(out, "index.html"), encoding="utf-8").read()
+        assert "const STATIC=true;" in idx
+        ov = json.load(open(os.path.join(out, "api", "overview.json"), encoding="utf-8"))
+        assert ov["batch"]["ordinances_n"] == 3
+        ords = json.load(open(os.path.join(out, "api", "ordinances.json"), encoding="utf-8"))
+        assert all("laws" in o for o in ords)                  # 검색용 인용 법령명
+        assert any("건축법" in o["laws"] for o in ords)
+        assert os.path.exists(os.path.join(out, "api", "ordinance", "1.json"))
+        assert os.path.exists(os.path.join(out, "report", "1.html"))
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+        os.unlink(path)
+
+
 def test_law_refs_in_detail():
     """조례 상세에 인용 상위법령 정보(law_refs: 조문·판정 요약·법령ID)가 담긴다."""
     from gunpolaw.serve import ordinance_detail

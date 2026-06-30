@@ -60,3 +60,7 @@ gunpolaw_share.db
 # export-share zip 풀어본 테스트 산출물 (스크래치)
 _ziptest/
 _share_slim.db
+
+# export-static 정적 사이트 산출물 (DB에서 재생성 — 별도 공개 리포로 배포)
+site/
+_staticsite/

@@ -526,7 +526,7 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 </style></head>
 <body><div class="wrap">
   <h1>자치법규 정비 — 총괄 대시보드
-    <a href="/admin" style="float:right;font-size:13px;font-weight:400;color:#6b7280;text-decoration:none">🔧 판정 근거 검사</a></h1>
+    <a href="/admin" id="adminLink" style="float:right;font-size:13px;font-weight:400;color:#6b7280;text-decoration:none">🔧 판정 근거 검사</a></h1>
   <div class="banner" id="banner">불러오는 중…</div>
   <div class="cards" id="cards"></div>
   <div class="changes" id="changes" style="display:none"></div>
@@ -544,7 +544,9 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 <script>
 const GO=[]; const GM={};          // grade_order / grade_meta
 const PCLS={mechanical:"p-mech",review:"p-rev",check:"p-chk",format:"p-fmt",current:"p-cur"};
+const STATIC=false;                // export-static 가 true 로 치환(서버 없이 정적 파일만)
 let OV=null, curDept="", curMst="", curQuery="", cssInjected=false, LOCALREFS={}, LAWREFS={};
+let _ALLORDS=null, DEPTIDX={};      // 정적: 전체 조례 캐시·담당과 인덱스(리포트 파일명)
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function fdate(s){const d=String(s||"").replace(/[^0-9]/g,"").slice(0,8);
@@ -553,7 +555,40 @@ function dist(grades){ // 등급 분포 pill (current 제외, 0은 생략)
   return GO.filter(k=>k!=="current"&&grades[k]>0)
     .map(k=>`<span class="pill ${PCLS[k]}">${GM[k].emoji} ${grades[k]}</span>`).join("")||'<span class="muted">—</span>';}
 
-async function getJSON(u){const r=await fetch(u);return r.json();}
+function _staticPath(u){            // 라이브 엔드포인트 → 정적 파일 경로
+  const p=u.split("?")[0];
+  if(p==="/api/overview")return "api/overview.json";
+  if(p==="/api/changes")return "api/changes.json";
+  if(p==="/api/ordinances")return "api/ordinances.json";
+  if(p.indexOf("/api/ordinance/")===0)return "api/ordinance/"+p.split("/").pop()+".json";
+  return u;
+}
+async function getJSON(u){const r=await fetch(STATIC?_staticPath(u):u);return r.json();}
+function ordReportHref(mst){
+  return STATIC?`report/${encodeURIComponent(mst)}.html`
+    :`/api/ordinance_report?mst=${encodeURIComponent(mst)}&format=html`;}
+function deptReportHref(dept,fmt){
+  return STATIC?`dept_report/${DEPTIDX[dept]}.${fmt}`
+    :`/api/dept_report?dept=${encodeURIComponent(dept)}&format=${fmt}`;}
+async function fetchOrds(opts){     // 조례 목록(라이브=서버 필터 / 정적=전체 캐시 클라 필터)
+  const dept=opts.dept||"", q=(opts.q||"").trim(), action=!!opts.action;
+  if(!STATIC){
+    const qs=[]; if(q)qs.push("q="+encodeURIComponent(q));
+    else if(dept)qs.push("dept="+encodeURIComponent(dept));
+    if(action)qs.push("action=1");
+    return getJSON("/api/ordinances"+(qs.length?"?"+qs.join("&"):""));
+  }
+  if(!_ALLORDS)_ALLORDS=await getJSON("/api/ordinances");
+  let list=_ALLORDS.slice();
+  if(q){const qn=q.replace(/\s/g,"");
+    list=list.filter(o=>(o.name||"").replace(/\s/g,"").includes(qn)||(o.laws||[]).some(l=>l.includes(q)))
+      .map(o=>{const inName=(o.name||"").replace(/\s/g,"").includes(qn);
+        return Object.assign({},o,{law_hits:inName?[]:(o.laws||[]).filter(l=>l.includes(q))});});
+  }else if(dept){list=list.filter(o=>o.dept===dept);}
+  if(action)list=list.filter(o=>o.items_count>0);
+  list.sort((a,b)=>(b.items_count-a.items_count)||String(a.name).localeCompare(b.name));
+  return list;
+}
 
 function renderCards(){
   const g=OV.grades, t=OV.totals;
@@ -589,9 +624,9 @@ async function renderChanges(){
     const uncHtml=unc.length?`<div class="grp"><span class="lbl unc">확인 ${unc.length}</span>
         <div class="ords">${unc.map(chip).join("")}</div></div>`:"";
     const empty=(!aff.length&&!unc.length)?'<div class="none">바뀐 조문을 인용한 조례 없음(무관)</div>':"";
-    const ackBtn=c.acked
+    const ackBtn=STATIC?"":(c.acked
       ?`<button class="ackb done" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="0">✓ 검토완료 (해제)</button>`
-      :`<button class="ackb" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="1">검토완료 표시</button>`;
+      :`<button class="ackb" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="1">검토완료 표시</button>`);
     return `<div class="law${c.acked?" acked":""}"><span class="lname">「${esc(c.name)}」</span>
       <span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)} · ${caTxt}</span>
       ${ackBtn}${affHtml}${uncHtml}${empty}</div>`;
@@ -600,13 +635,14 @@ async function renderChanges(){
   box.innerHTML=`<div class="chd"><span class="badge">🔔 ${nOpen}</span>
      법령 개정 감지 — 해당 조례 ${nAff}건 · 확인 ${nUnc}건
      <span class="muted" style="font-weight:400">· 조례 클릭 시 상세</span>
-     <label class="muted chall"><input type="checkbox" id="chAll"${CHANGES_ALL?" checked":""}> 검토완료 포함</label>
+     ${STATIC?"":`<label class="muted chall"><input type="checkbox" id="chAll"${CHANGES_ALL?" checked":""}> 검토완료 포함</label>`}
      <span class="arr">▸</span></div>
      <div class="clist">${laws}</div>`;
   box.style.display="block";
   box.classList.add("open");
   box.querySelector(".chd").onclick=e=>{if(e.target.id!=="chAll")box.classList.toggle("open");};
-  box.querySelector("#chAll").onclick=e=>{e.stopPropagation();CHANGES_ALL=e.target.checked;renderChanges();};
+  const _ca=box.querySelector("#chAll");
+  if(_ca)_ca.onclick=e=>{e.stopPropagation();CHANGES_ALL=e.target.checked;renderChanges();};
   box.querySelectorAll(".ords a[data-mst]").forEach(a=>
     a.onclick=()=>selectOrd(a.dataset.mst));
   box.querySelectorAll(".ackb").forEach(b=>b.onclick=async e=>{
@@ -626,9 +662,9 @@ function fillDeptSelect(){
 }
 
 function renderDeptTable(){
-  let rows=OV.depts.map(d=>{const dq=encodeURIComponent(d.dept);
-    const rep=d.action?`<a href="/api/dept_report?dept=${dq}&format=html" target="_blank" onclick="event.stopPropagation()">🖨</a>
-       <a href="/api/dept_report?dept=${dq}&format=csv" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
+  let rows=OV.depts.map(d=>{
+    const rep=d.action?`<a href="${deptReportHref(d.dept,'html')}" target="_blank" onclick="event.stopPropagation()">🖨</a>
+       <a href="${deptReportHref(d.dept,'csv')}" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
     return `<tr data-dept="${esc(d.dept)}">
      <td>${esc(d.dept)}</td>
      <td class="num">${d.action}</td><td class="num">${d.total}</td>
@@ -641,8 +677,7 @@ function renderDeptTable(){
 }
 
 async function renderOrdList(){
-  const act=document.getElementById("actChk").checked?"&action=1":"";
-  const list=await getJSON(`/api/ordinances?dept=${encodeURIComponent(curDept)}${act}`);
+  const list=await fetchOrds({dept:curDept, action:document.getElementById("actChk").checked});
   if(!list.length){document.getElementById("listPanel").innerHTML=
     `<div class="empty">해당 조건의 조례가 없습니다.</div>`;return;}
   let rows=list.map(o=>`<tr data-mst="${esc(o.mst)}">
@@ -657,8 +692,7 @@ async function renderOrdList(){
 
 async function renderSearch(){
   // 자유검색 결과(담당과 교차) — 조례명 또는 인용 법령명 매치. 담당과 컬럼 표시.
-  const act=document.getElementById("actChk").checked?"&action=1":"";
-  const list=await getJSON(`/api/ordinances?q=${encodeURIComponent(curQuery)}${act}`);
+  const list=await fetchOrds({q:curQuery, action:document.getElementById("actChk").checked});
   if(!list.length){document.getElementById("listPanel").innerHTML=
     `<div class="empty">'${esc(curQuery)}' 검색 결과 없음.</div>`;return;}
   let rows=list.map(o=>{
@@ -697,7 +731,7 @@ async function selectOrd(mst){
   const dp=document.getElementById("detailPanel");
   dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">← 목록</button>
      <a class="btn" style="margin-left:8px;text-decoration:none" target="_blank"
-        href="/api/ordinance_report?mst=${encodeURIComponent(mst)}&format=html">📄 분석 권고서(인쇄용)</a>
+        href="${ordReportHref(mst)}">📄 분석 권고서(인쇄용)</a>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="dsplit">
        <div class="dbody"><div class="dcolhd">📄 조례 본문 — 인용 클릭 시 우측에 정보 · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례</span></div>${left}</div>
@@ -792,10 +826,9 @@ function renderCrumb(){
   const c=document.getElementById("crumb");
   if(curQuery){c.innerHTML=`<a onclick="clearSearch()">← 검색 해제</a> · <b>검색 “${esc(curQuery)}”</b>`;return;}
   if(!curDept){c.innerHTML="";return;}
-  const dq=encodeURIComponent(curDept);
   c.innerHTML=`<a onclick="selectDept('')">← 전체 담당과</a> · <b>${esc(curDept)}</b>`
-    +` · <a href="/api/dept_report?dept=${dq}&format=html" target="_blank">🖨 과별 리포트</a>`
-    +` · <a href="/api/dept_report?dept=${dq}&format=csv">CSV 내려받기</a>`;
+    +` · <a href="${deptReportHref(curDept,'html')}" target="_blank">🖨 과별 리포트</a>`
+    +` · <a href="${deptReportHref(curDept,'csv')}">CSV 내려받기</a>`;
 }
 async function refresh(){
   closeDetail();
@@ -807,6 +840,8 @@ async function refresh(){
 async function init(){
   OV=await getJSON("/api/overview");
   GO.push(...OV.grade_order); Object.assign(GM,OV.grade_meta);
+  OV.depts.forEach((d,i)=>DEPTIDX[d.dept]=i);     // 정적 과별 리포트 파일 인덱스
+  if(STATIC){const al=document.getElementById("adminLink"); if(al)al.style.display="none";}
   renderBanner(); renderCards(); fillDeptSelect(); renderChanges();
   document.getElementById("deptSel").onchange=e=>selectDept(e.target.value);
   document.getElementById("actChk").onchange=()=>{
@@ -1019,3 +1054,69 @@ loadList();
 </script>
 </body></html>
 """
+
+
+# ---------- 정적 사이트 생성(서버 없이 GitHub Pages 등 호스팅) ----------
+def export_static(out_dir="site", db_path=db.DEFAULT_DB, verbose=True):
+    """DB를 읽어 서버 없이 열람 가능한 정적 사이트를 출력한다(공개 호스팅용).
+
+    대시보드 HTML(정적 모드) + api/*.json + 조례별 권고서 HTML + 과별 리포트.
+    검색은 브라우저에서 클라이언트 필터로 동작(전체 목록에 인용 법령명 동봉).
+    제외: /admin(전체 DB 필요)·검토완료(ack, DB 쓰기) — 읽기 전용 공개본.
+    """
+    import os
+    import json as _json
+    from .batch import law_changes_report
+
+    out = os.path.abspath(out_dir)
+    for sub in ("", "api", "api/ordinance", "report", "dept_report"):
+        os.makedirs(os.path.join(out, sub), exist_ok=True)
+
+    def w(path, text):
+        with open(os.path.join(out, path), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def wj(path, obj):
+        w(path, _json.dumps(obj, ensure_ascii=False))
+
+    # 대시보드(정적 모드 토글) — 라이브 엔드포인트 대신 정적 파일을 읽도록
+    w("index.html", DASHBOARD_HTML.replace("const STATIC=false;", "const STATIC=true;"))
+
+    ov = overview(db_path)
+    wj("api/overview.json", ov)
+
+    # 전체 조례 목록 + 인용 법령명(검색용, 클라 필터)
+    ords = list_ordinances(db_path)
+    conn = db.connect(db_path)
+    laws_by = {}
+    for r in conn.execute("SELECT DISTINCT mst, law_name FROM citations "
+                          "WHERE cite_type='법령' AND law_name != ''"):
+        laws_by.setdefault(r["mst"], []).append(r["law_name"])
+    conn.close()
+    for o in ords:
+        o["laws"] = sorted(laws_by.get(o["mst"], []))
+    wj("api/ordinances.json", ords)
+
+    wj("api/changes.json", law_changes_report(db_path))
+
+    # 조례별 상세(JSON) + 분석 권고서(HTML)
+    for o in ords:
+        mst = o["mst"]
+        wj(f"api/ordinance/{mst}.json", ordinance_detail(db_path, mst))
+        model = build_model(db_path, mst=mst, include_current=True)
+        name = model["ordinances"][0]["name"] if model["ordinances"] else mst
+        w(f"report/{mst}.html", render_html(model, title=f"{name} — 정비 권고(분석 결과)"))
+
+    # 과별 리포트 — overview 순서 인덱스 = 대시보드 링크(deptReportHref)와 일치
+    for i, d in enumerate(ov["depts"]):
+        if not d.get("action"):
+            continue
+        m = build_model(db_path, dept=d["dept"])
+        w(f"dept_report/{i}.html", render_html(m, title=f"{d['dept']} 자치법규 정비 권고"))
+        w(f"dept_report/{i}.csv", model_to_csv(m, dept=d["dept"]))
+
+    nfiles = sum(len(fs) for _, _, fs in os.walk(out))
+    if verbose:
+        print(f"정적 사이트 생성 → {out}  (조례 {len(ords)}건 · 파일 {nfiles}개)")
+        print("  GitHub Pages: 이 폴더 내용을 공개 리포에 올리고 Pages 활성화")
+    return {"out": out, "ordinances": len(ords), "files": nfiles}
