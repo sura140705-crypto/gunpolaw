@@ -488,6 +488,8 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
            color:#1e40af;border-radius:5px;padding:0 6px;margin:1px 3px 1px 0;}
 .lref .rsum{font-weight:600;font-size:11.5px;}
 .lref.law .btn{display:inline-block;text-decoration:none;font-size:12px;margin-top:2px;}
+/* 카드 내 앵커형 버튼(국가법령정보센터 링크) — 법령·행정규칙·자치법규 카드 공통 */
+.lref a.btn{display:inline-block;text-decoration:none;margin-top:2px;}
 .artsec{scroll-margin-top:8px;}
 .flash{animation:flash 1.4s ease;}
 @keyframes flash{0%{background:#fde68a;}70%{background:#fef3c7;}100%{background:transparent;}}
@@ -502,7 +504,8 @@ mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 .changes .clist{padding:0 15px 12px;display:none;}
 .changes.open .clist{display:block;}
 .changes .law{border-top:1px solid #fecaca;padding:9px 0;}
-.changes .law .lname{font-size:13.5px;color:#7f1d1d;font-weight:600;}
+.changes .law .lname{font-size:13.5px;color:#7f1d1d;font-weight:600;text-decoration:none;}
+a.lname:hover{text-decoration:underline;}
 .changes .law .lmeta{font-size:12px;color:#b91c1c;font-weight:400;margin-left:6px;}
 .changes .grp{display:flex;align-items:flex-start;gap:8px;margin:6px 0 0;}
 .changes .lbl{flex:0 0 auto;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;
@@ -627,8 +630,11 @@ async function renderChanges(){
     const ackBtn=STATIC?"":(c.acked
       ?`<button class="ackb done" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="0">✓ 검토완료 (해제)</button>`
       :`<button class="ackb" data-law="${esc(c.law_id)}" data-key="${esc(c.new_key||"")}" data-ack="1">검토완료 표시</button>`);
-    return `<div class="law${c.acked?" acked":""}"><span class="lname">「${esc(c.name)}」</span>
-      <span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)} · ${caTxt}</span>
+    // 바뀐 법령명도 국가법령정보센터 링크로(법령·행정규칙·자치법규 카드와 동일 방식)
+    const cportal=`https://www.law.go.kr/법령/${encodeURIComponent(c.name)}`;
+    return `<div class="law${c.acked?" acked":""}">`
+      +`<a class="lname" href="${cportal}" target="_blank" rel="noopener" title="국가법령정보센터에서 보기">「${esc(c.name)}」 ↗</a>`
+      +`<span class="lmeta">${esc(c.revise_type||"개정")} · 시행 ${fdate(c.new_enforce)} · ${caTxt}</span>
       ${ackBtn}${affHtml}${uncHtml}${empty}</div>`;
   }).join("");
   const nOpen=ch.filter(c=>!c.acked).length;
@@ -770,15 +776,20 @@ function wireFocus(dp){
 }
 function cssq(s){return String(s).replace(/["\\]/g,"\\$&");}
 function showLocalRef(name){
-  // 타 조례(자치법규) 인용 클릭 → 우측에 그 조례 미니 정보 카드(이름·담당과·시행일 + 열기)
+  // 타 조례(자치법규) 인용 클릭 → 우측에 그 조례 미니 정보 카드.
+  // 상위법령·행정규칙 카드와 동일하게 국가법령정보센터 포털 링크를 함께 제공(일관성).
   const box=document.getElementById("localref"); if(!box)return;
   const ref=LOCALREFS[String(name||"").replace(/\s/g,"")];
+  const disp=ref?ref.name:name;
+  const portal=`https://www.law.go.kr/자치법규/${encodeURIComponent(disp)}`;
+  const portalBtn=`<a class="btn" href="${portal}" target="_blank" rel="noopener">국가법령정보센터에서 보기 ↗</a>`;
   const inner = ref
     ? `<div class="h">「${esc(ref.name)}」<span class="tag">자치법규</span></div>
        <div class="m">담당 ${esc(ref.dept||"—")} · 시행 ${fdate(ref.enforce_date)}</div>
-       <button class="btn" onclick="selectOrd('${esc(ref.mst)}')">이 조례 열기 →</button>`
+       <button class="btn" onclick="selectOrd('${esc(ref.mst)}')">이 조례 열기 →</button> ${portalBtn}`
     : `<div class="h">「${esc(name)}」<span class="tag">자치법규</span></div>
-       <div class="m muted">수집 범위 외 — 군포시 조례가 아니거나 미수집</div>`;
+       <div class="m muted">수집 범위 외 — 군포시 조례가 아니거나 미수집(포털에서 원문 확인)</div>
+       ${portalBtn}`;
   box.innerHTML=`<div class="lref">${inner}<span class="x" title="닫기"
        onclick="document.getElementById('localref').innerHTML=''">×</span></div>`;
   box.scrollIntoView({behavior:"smooth",block:"nearest"});
