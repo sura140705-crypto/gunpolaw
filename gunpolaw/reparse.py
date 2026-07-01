@@ -11,7 +11,7 @@ DB의 원본 XML(ordinances.body_xml / laws.body_xml / law_versions.body_xml)을
 from datetime import datetime, timedelta
 
 from . import db
-from .parse import parse_ordinance_body, parse_law_articles
+from .parse import parse_ordinance_body, parse_law_articles, ADM_PREFIX
 from .pipeline import analyze_ordinance, LiveSource
 from .batch import persist_result, _now
 
@@ -29,23 +29,33 @@ class _DBSource:
         # 같은 ID로 풀지만, laws.name엔 '처음 받은 이름' 하나만 남는다. 직전 배치의 '실제
         # 해소 결과'는 findings(law_name→law_id)에 전부 들어 있으므로 그걸 1순위로 쓴다.
         self._index = {}
+        # 행정규칙(ADM_PREFIX)은 법령 인덱스에서 배제하고 별도 인덱스로 — resolve_law_id 가
+        # 행정규칙명에 대해 None 을 돌려줘야 pipeline 이 admrul 폴백을 다시 태운다(재현).
+        self._adm_index = {}   # {정규화 행정규칙명: ADM 접두어 없는 원 일련번호}
+
+        def _put(name, law_id):
+            if not name or not law_id:
+                return
+            key = name.replace(" ", "")
+            if str(law_id).startswith(ADM_PREFIX):
+                self._adm_index.setdefault(key, str(law_id)[len(ADM_PREFIX):])
+            else:
+                self._index.setdefault(key, law_id)
+
         # 1순위: citations.law_id — 배치가 새긴 해소 결과(조문 없는 법명-only 인용도 포함)
         for r in conn.execute(
                 "SELECT DISTINCT law_name, law_id FROM citations "
                 "WHERE law_id IS NOT NULL AND law_id != ''"):
-            if r["law_name"]:
-                self._index[r["law_name"].replace(" ", "")] = r["law_id"]
+            _put(r["law_name"], r["law_id"])
         # 2순위: findings(법명→ID) — citations.law_id 미적재 구 DB 호환
         for r in conn.execute(
                 "SELECT DISTINCT law_name, law_id FROM findings "
                 "WHERE law_id IS NOT NULL AND law_id != ''"):
-            if r["law_name"]:
-                self._index.setdefault(r["law_name"].replace(" ", ""), r["law_id"])
+            _put(r["law_name"], r["law_id"])
         for r in conn.execute("SELECT law_id, name FROM laws WHERE name IS NOT NULL"):
-            self._index.setdefault(r["name"].replace(" ", ""), r["law_id"])
+            _put(r["name"], r["law_id"])
         for r in conn.execute("SELECT law_id, law_name FROM ord_law_links"):
-            if r["law_name"] and r["law_id"]:
-                self._index.setdefault(r["law_name"].replace(" ", ""), r["law_id"])
+            _put(r["law_name"], r["law_id"])
 
     def get_ordinance_body(self, mst):
         r = self.conn.execute(
@@ -65,6 +75,15 @@ class _DBSource:
     def get_law_body(self, law_id):
         r = self.conn.execute("SELECT body_xml FROM laws WHERE law_id=?",
                               (str(law_id),)).fetchone()
+        return (r["body_xml"] if r else "") or ""
+
+    def resolve_admrul_id(self, name):
+        return self._adm_index.get(name.replace(" ", ""))
+
+    def get_admrul_body(self, admrul_id):
+        # 행정규칙 본문도 laws 테이블에 ADM 접두어 law_id 로 적재돼 있음(재수집 없이 재파싱)
+        r = self.conn.execute("SELECT body_xml FROM laws WHERE law_id=?",
+                              (ADM_PREFIX + str(admrul_id),)).fetchone()
         return (r["body_xml"] if r else "") or ""
 
     def list_versions(self, law_name, law_id=None):
@@ -133,6 +152,21 @@ class StaleAwareSource:
     def resolve_law_id(self, name):
         # 법령ID는 불변 — DB 인덱스(직전 해소 결과)를 신뢰, 미수록 신규명만 라이브 검색.
         return self._db.resolve_law_id(name) or self._live.resolve_law_id(name)
+
+    def resolve_admrul_id(self, name):
+        # 행정규칙 일련번호도 불변 — 직전 해소분(DB) 우선, 신규명만 라이브 검색.
+        return self._db.resolve_admrul_id(name) or self._live.resolve_admrul_id(name)
+
+    def get_admrul_body(self, admrul_id):
+        row = self.conn.execute(
+            "SELECT body_xml, fetched_at FROM laws WHERE law_id=?",
+            (ADM_PREFIX + str(admrul_id),)).fetchone()
+        if row and row["body_xml"] and self._fresh(row["fetched_at"]):
+            self.reused_law_at[ADM_PREFIX + str(admrul_id)] = row["fetched_at"]
+            self.misses["law_reused"] += 1
+            return row["body_xml"]
+        self.misses["law"] += 1
+        return self._live.get_admrul_body(admrul_id)
 
     def get_law_body(self, law_id):
         row = self.conn.execute(

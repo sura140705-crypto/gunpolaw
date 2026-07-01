@@ -179,6 +179,9 @@ def action_text(f):
                 return f"「{law}」 {clause} 조문번호 이동 — {loc}의 인용 조문번호 정정"
             return f"「{law}」 {clause} 변경 사항을 검토하여 {loc} 정비"
         # check
+        if ct == "지자체행정규칙":
+            return (f"「{law}」는 지자체 자체 행정규칙 — 국가법령정보에 없어 자동 대조 불가. "
+                    f"{loc} 인용을 최신 원문과 수기 대조")
         if ct == "법령미해결":
             return f"「{law}」 제명변경·폐지 여부를 확인하고 {loc}의 인용 법령명을 정정"
         if ct == "당시부재":

@@ -788,7 +788,12 @@ function showLawRef(name){
   const box=document.getElementById("localref"); if(!box)return;
   const ref=LAWREFS[String(name||"").replace(/\s/g,"")];
   const law=ref?ref.name:name;
-  const portal=`https://www.law.go.kr/법령/${encodeURIComponent(law)}`;
+  // 행정규칙(law_id=ADM:…)은 법령과 별개 저장소 — 태그·포털 경로를 구분
+  const isAdm=ref&&String(ref.law_id||"").indexOf("ADM:")===0;
+  const kindTag=isAdm?'행정규칙':'상위법령';
+  const idLabel=isAdm?"행정규칙ID "+esc(String(ref.law_id).slice(4)):"법령ID "+esc(ref?ref.law_id:"");
+  const portal=isAdm?`https://www.law.go.kr/행정규칙/${encodeURIComponent(law)}`
+    :`https://www.law.go.kr/법령/${encodeURIComponent(law)}`;
   const SEV={mechanical:["기계적","#1d4ed8"],review:["검토","#b45309"],
     check:["확인","#52525b"],format:["서식","#6d28d9"],current:["변경없음","#15803d"]};
   let body="";
@@ -798,12 +803,13 @@ function showLawRef(name){
     const sum=Object.entries(ref.counts||{}).filter(([,n])=>n)
       .map(([g,n])=>`<span class="rsum" style="color:${(SEV[g]||['',''])[1]}">${(SEV[g]||[g])[0]} ${n}</span>`).join(" · ")
       ||'<span class="muted">판정 항목 없음(근거 인용)</span>';
+    const idNote=isAdm?" · 시점 개정이력 없음(존재·현행 확인)":"";
     body=`<div class="m">인용 조문: ${cls||'<span class="muted">법명만 인용</span>'}</div>
-       <div class="m">판정: ${sum}${ref.law_id?` · <span class="muted">법령ID ${esc(ref.law_id)}</span>`:""}</div>`;
+       <div class="m">판정: ${sum}${ref.law_id?` · <span class="muted">${idLabel}</span>`:""}${idNote}</div>`;
   }else{
     body=`<div class="m muted">이 조례에서 인용한 상위법령</div>`;
   }
-  box.innerHTML=`<div class="lref law"><div class="h">「${esc(law)}」<span class="tag tlaw">상위법령</span></div>
+  box.innerHTML=`<div class="lref law"><div class="h">「${esc(law)}」<span class="tag tlaw">${kindTag}</span></div>
      ${body}
      <a class="btn" href="${portal}" target="_blank" rel="noopener">국가법령정보센터에서 보기 ↗</a>
      <span class="x" title="닫기" onclick="document.getElementById('localref').innerHTML=''">×</span></div>`;

@@ -6,6 +6,7 @@
 이 모듈(네트워크 의존)은 불러오지 않는다. '수집'(batch/pipeline/history)만 이 모듈을 쓴다.
 """
 import os
+import re
 import ssl
 import time
 import urllib.parse
@@ -143,3 +144,50 @@ def resolve_law_id(law_name):
 
 def get_law_body(law_id):
     return call("lawService.do", {"target": "law", "type": "XML", "ID": str(law_id)})
+
+
+# ------------------------------------------------------------------
+# 행정규칙 (target=admrul) — 훈령·예규·고시·지침 등
+# ------------------------------------------------------------------
+# 법령(target=law)엔 없는 행정규칙 저장소. 조례가 「○○ 훈령/지침/고시」를 인용해도
+# 법령 검색으론 안 잡히던 사각지대를 메운다(존재·현행 조문 확인 수준). 시행일자별
+# 연혁(eflaw)은 없어 시점 diff 는 제한적 — pipeline 은 법령 해소 실패 시에만 폴백한다.
+def _adm_key(s):
+    """행정규칙명 비교용 정규화 — 공백·가운뎃점류 제거."""
+    return re.sub(r"[\s·ㆍ・]", "", s or "")
+
+
+def resolve_admrul_id(name):
+    """행정규칙명 -> 행정규칙일련번호. **정확매칭만** 채택(없으면 None).
+
+    admrul 검색은 유사명을 폭넓게 돌려주므로(예: '공무원 여비 규정' → 엉뚱한 여비지급
+    규정) 첫 결과 폴백은 오매칭을 만든다. 조례는 「」로 정식 명칭을 인용하므로 공백·
+    가운뎃점만 무시한 정확매칭이 안전하다.
+    """
+    xml = call("lawSearch.do", {
+        "target": "admrul", "type": "XML", "query": name, "display": "10"})
+    if not xml:
+        return None
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return None
+    qn = _adm_key(name)
+    for e in root:
+        if len(list(e)) == 0:
+            continue
+        nm = (e.findtext("행정규칙명") or "").strip()
+        rid = (e.findtext("행정규칙일련번호") or e.findtext("행정규칙ID") or "").strip()
+        if rid and _adm_key(nm) == qn:
+            return rid
+    return None
+
+
+def get_admrul_body(admrul_id):
+    """행정규칙 본문 XML. ID(일련번호)로 조회, 실패 시 LID 로 재시도."""
+    xml = call("lawService.do", {"target": "admrul", "type": "XML", "ID": str(admrul_id)})
+    if not xml or "<행정규칙" not in xml:
+        alt = call("lawService.do", {"target": "admrul", "type": "XML", "LID": str(admrul_id)})
+        if alt and "<행정규칙" in alt:
+            return alt
+    return xml

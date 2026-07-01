@@ -4,9 +4,20 @@
 수집(moleg API)과 오프라인 재파싱(DB의 body_xml)이 같은 파서를 공유한다. 배포 제품
 (serve/report)은 DB만 읽으므로 이 모듈만 쓰고 moleg(API 클라이언트)는 불러오지 않는다.
 """
+import re
 import xml.etree.ElementTree as ET
 
 from .clauses import to_label
+
+# 행정규칙(훈령·예규·고시·지침 등)은 법령(target=law)과 별개 저장소지만, 조문 존재·현행
+# 판정은 법령과 동일한 파이프라인을 태운다. 구분을 위해 law_id 에 이 접두어를 붙여
+# 네임스페이스를 나눈다("ADM:1234567"). 기존 laws/law_articles/findings 테이블을 그대로
+# 재사용(스키마 변경 0) — resolve_law_id(법령) 인덱스는 이 접두어를 배제한다.
+ADM_PREFIX = "ADM:"
+
+
+def is_admrul_id(law_id):
+    return str(law_id or "").startswith(ADM_PREFIX)
 
 
 def decode_article_code(code):
@@ -167,3 +178,93 @@ def parse_law_articles(xml):
             "content": article_text(u),
         }
     return arts
+
+
+# ------------------------------------------------------------------
+# 행정규칙 본문 (target=admrul)
+# ------------------------------------------------------------------
+# 행정규칙 XML은 법령(조문단위)과 자치법규(조문/조) 두 표기가 섞여 있고, 조문 구조 없이
+# 조문내용을 한 덩어리로 주는 자료도 있다. 세 전략을 순서대로 시도해 {라벨: 조문메타}로
+# 정규화한다(법령 파서와 동일한 dict 모양 → checks.check_clause 를 그대로 재사용).
+_JO_HEAD_RE = re.compile(r"제(\d+)조(?:의(\d+))?")
+
+
+def _admrul_arts_from_flat(root):
+    """조문 구조가 없는 행정규칙: 조문내용 텍스트를 '제N조' 머리 경계로 분해.
+
+    각 조는 다음 '제N조' 머리 전까지를 자기 본문으로 가진다(조별 <개정> 태그가
+    엉뚱한 조에 붙지 않도록). 라벨 파싱만 되면 존재·현행 판정엔 충분.
+    """
+    chunks = [(el.text or "").strip()
+              for el in root.iter("조문내용") if (el.text or "").strip()]
+    if not chunks:
+        # 조문내용 태그조차 없으면 본문 전체 텍스트를 한 덩어리로
+        whole = "\n".join(t.strip() for t in root.itertext() if t.strip())
+        chunks = [whole] if whole else []
+    arts, cur = {}, None
+    for text in chunks:
+        for line in text.split("\n"):
+            m = _JO_HEAD_RE.match(line.strip())
+            if m:
+                label = to_label(int(m.group(1)), int(m.group(2) or 0))
+                cur = arts.setdefault(label, {
+                    "label": label, "enforce_date": "", "moved_from": "",
+                    "moved_to": "", "changed": False, "title": "", "_lines": []})
+            if cur is not None:
+                cur["_lines"].append(line)
+    for a in arts.values():
+        a["content"] = "\n".join(a.pop("_lines")).strip()
+    return arts
+
+
+def parse_admrul_articles(xml):
+    """행정규칙 본문 XML -> {라벨: 조문메타}. 법령/자치법규/평문 표기를 모두 흡수.
+
+    법령 파서(parse_law_articles)와 같은 dict 모양을 돌려주므로 존재·현행 판정은
+    checks.check_clause 를 그대로 태운다. 못 파싱하면 빈 dict(→ 인용 조문 '부재'로 판정).
+    """
+    if not xml:
+        return {}
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return {}
+    # 1) 법령식(조문단위) 우선
+    arts = parse_law_articles(xml)
+    if arts:
+        return arts
+    # 2) 자치법규식(조문/조)
+    for jo in root.findall(".//조문/조"):
+        if (jo.findtext("조문여부") or "").strip() and \
+                (jo.findtext("조문여부") or "").strip() != "Y":
+            continue
+        label = decode_article_code(jo.findtext("조문번호"))
+        if not label:
+            m = _JO_HEAD_RE.match((jo.findtext("조내용") or "").strip())
+            if m:
+                label = to_label(int(m.group(1)), int(m.group(2) or 0))
+        if not label:
+            continue
+        arts[label] = {
+            "label": label, "enforce_date": "", "moved_from": "", "moved_to": "",
+            "changed": False, "title": (jo.findtext("조제목") or "").strip(),
+            "content": (jo.findtext("조내용") or "").strip()}
+    if arts:
+        return arts
+    # 3) 조문 구조 없는 평문 폴백
+    return _admrul_arts_from_flat(root)
+
+
+def admrul_name_of(xml):
+    """행정규칙 본문 XML의 현행 행정규칙명(<행정규칙명>). 없으면 ''."""
+    if not xml:
+        return ""
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return ""
+    for tag in ("행정규칙명", "법령명_한글"):
+        el = root.find(".//" + tag)
+        if el is not None and (el.text or "").strip():
+            return el.text.strip()
+    return ""

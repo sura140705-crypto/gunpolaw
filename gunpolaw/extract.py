@@ -78,22 +78,42 @@ def normalize_text(text):
     return t
 
 
+# 행정규칙(훈령·예규·고시·지침·요령·규정·기준) 접미어. 지자체가 발령해도 자치법규(조례·
+# 규칙)가 아니라 별도 저장소(법제처 target=admrul) 대상 → '법령' 타입으로 흘려 pipeline
+# 의 admrul 폴백을 태운다. '규정/기준'은 대통령령(○○규정)과도 겹치나, 그건 애초에
+# LOCAL_PREFIX 로 시작하지 않아 아래 지자체 분기에 걸리지 않는다(target=law 로 정상 해소).
+ADMRUL_SUFFIX = ("훈령", "예규", "고시", "지침", "요령", "규정", "기준")
+
+
 def classify(name):
-    """법령 / 자치법규 / 기타(일반어).
+    """법령(상위법령·행정규칙) / 자치법규(조례·규칙) / 기타(일반어).
 
     주의: '○○법 시행규칙'은 국가법령(법령)이다. '규칙'으로 끝난다고 자치법규로
     보면 시행규칙(상위법)을 통째로 놓친다 → '시행규칙'은 법령, 그 외 '규칙'(지자체
-    규칙)·'조례'만 자치법규. 지자체 규칙은 대개 LOCAL_PREFIX 로도 먼저 걸린다.
+    규칙)·'조례'만 자치법규.
+    행정규칙(훈령·지침·규정 등)은 지자체 발령이라도 자치법규가 아니라 '법령' 타입 —
+    pipeline 이 target=law 실패 시 target=admrul 로 폴백 조회한다.
     """
     if not name or name in GENERIC_NAMES:
         return "기타"
-    if any(name.startswith(p) for p in LOCAL_PREFIX):
-        return "자치법규"
     if name.endswith("조례"):
         return "자치법규"
     if name.endswith("규칙") and "시행규칙" not in name:
         return "자치법규"
+    # 지자체 접두어로 시작해도 행정규칙 접미어면 자치법규 아님(행정규칙 → '법령'으로)
+    if any(name.startswith(p) for p in LOCAL_PREFIX) and not name.endswith(ADMRUL_SUFFIX):
+        return "자치법규"
     return "법령"
+
+
+def is_local_admrul(name):
+    """지자체 자체 행정규칙(예: '군포시 …기본지침')인가.
+
+    이들은 ELIS(자치법규시스템)에만 있고 법제처 국가법령정보 OpenAPI(law/admrul/ordin)
+    엔 없어 자동 조회가 불가능하다 → '폐지 의심'이 아니라 '수기 확인'으로 구분한다.
+    """
+    return bool(name) and name.endswith(ADMRUL_SUFFIX) and \
+        any(name.startswith(p) for p in LOCAL_PREFIX)
 
 
 def _resolve_same(last_law, kind):

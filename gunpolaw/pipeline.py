@@ -10,8 +10,9 @@ import re
 from . import moleg
 from . import checks
 from . import history
-from .parse import parse_law_articles, law_name_of
-from .extract import extract_citations_by_article, group_by_law
+from .parse import (parse_law_articles, law_name_of, parse_admrul_articles,
+                    admrul_name_of, ADM_PREFIX)
+from .extract import extract_citations_by_article, group_by_law, is_local_admrul
 
 
 class LiveSource:
@@ -24,11 +25,56 @@ class LiveSource:
     get_law_body = staticmethod(moleg.get_law_body)
     list_versions = staticmethod(history.list_versions)
     body_with_xml_by_mst = staticmethod(history.body_with_xml_by_mst)
+    # 행정규칙(훈령·예규·고시·지침) — 법령 해소 실패 시 폴백(존재·현행 확인)
+    resolve_admrul_id = staticmethod(moleg.resolve_admrul_id)
+    get_admrul_body = staticmethod(moleg.get_admrul_body)
 
 
 def _name_key(s):
     """법령명 비교용 정규화 — 공백·가운뎃점류 제거(제명변경만 잡고 표기차는 무시)."""
     return re.sub(r"[\s·ㆍ・]", "", s or "")
+
+
+def _analyze_admrul(name, g, ord_enforce, src,
+                    law_body_cache, law_name_cache, fetched_laws, resolved_ids, findings):
+    """법령(target=law) 해소 실패 시 행정규칙(admrul)으로 폴백 판정.
+
+    행정규칙엔 시행일자별 연혁(eflaw)이 없어 '시점 diff'는 불가 — 인용 조문이 현행
+    행정규칙 본문에 존재하는가(존재·현행 확인) 수준으로만 판정한다. 처리했으면 True,
+    행정규칙으로도 못 찾으면 False(호출측이 기존 '법령미해결'로 폴백).
+    law_id 는 ADM_PREFIX 로 네임스페이스를 나눠 기존 laws/law_articles 에 그대로 적재한다.
+    """
+    adm_id = None
+    resolver = getattr(src, "resolve_admrul_id", None)
+    if resolver:
+        adm_id = resolver(name)
+    if not adm_id:
+        return False
+    key = ADM_PREFIX + str(adm_id)
+    if key not in law_body_cache:
+        adm_xml = src.get_admrul_body(str(adm_id))
+        law_body_cache[key] = parse_admrul_articles(adm_xml)
+        law_name_cache[key] = admrul_name_of(adm_xml) or name
+        fetched_laws[key] = {"name": name, "articles": law_body_cache[key],
+                             "body_xml": adm_xml or ""}
+    resolved_ids[name] = key          # citations.law_id 에 ADM 키를 새겨 재파싱 재현
+    cur_arts = law_body_cache[key]
+
+    occs = g.get("occurrences", [])
+    if not occs:
+        # 조 미지정(법명-only) 인용 — 존재 확인만으로 충분(정비 항목 없음), 매핑만 보존
+        return True
+    for occ in occs:
+        f = checks.check_clause(cur_arts, occ["label"], ord_enforce, name, key)
+        # 행정규칙임을 명시(시점 판정 아님을 담당자가 알도록) + 현행이면 노이즈 억제 유지
+        f["change_type"] = f.get("change_type") or ""
+        f["detail"] = "[행정규칙] " + f["detail"]
+        f["ord_clause"] = occ["ord_article"]
+        f["ord_seq"] = occ["ord_seq"]
+        f["cite_naked"] = 1 if occ.get("naked") else 0
+        f["cite_spacing"] = 1 if occ.get("spacing") else 0
+        findings.append(f)
+    return True
 
 
 def analyze_ordinance(mst, link_index=None, law_cache=None,
@@ -75,6 +121,22 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
         if not law_id:
             # 맨몸으로만 잡힌 미해소 법명은 오탐 가능성이 높아 침묵 드롭(노이즈 억제).
             if naked_only:
+                continue
+            # 법령 저장소에 없으면 행정규칙(훈령·예규·고시·지침)으로 폴백 조회(존재·현행 확인).
+            if _analyze_admrul(name, g, ord_enforce, src,
+                               law_body_cache, law_name_cache, fetched_laws,
+                               resolved_ids, findings):
+                continue
+            # 지자체 자체 행정규칙은 법제처 API(law/admrul) 미수록 → '폐지 의심' 아니라 수기 확인
+            if is_local_admrul(name):
+                findings.append({
+                    "law_id": "", "law_name": name, "clause_label": "",
+                    "category": "status", "severity": "check", "change_type": "지자체행정규칙",
+                    "detail": "지자체 자체 행정규칙 — 국가법령정보 API 미수록(자동 대조 불가), "
+                              "원문 수기 확인 필요", "ord_enforce": ord_enforce,
+                    "clause_enforce": "", "old_enforce": "", "evidence": "",
+                    "ord_clause": law_loc, "ord_seq": law_seq,
+                    "cite_naked": 1 if naked_any else 0})
                 continue
             findings.append({
                 "law_id": "", "law_name": name, "clause_label": "",
