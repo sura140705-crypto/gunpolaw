@@ -62,6 +62,65 @@ def _scan(db_path):
     return list(by.values())
 
 
+# 소관업무별(편) 분류 — ELIS 자치법규 소관업무별 분류 + 군포시 행정조직도 기준.
+# 담당과를 실·국(편) 아래로 묶어 공식 조직 순서로 표출한다(정비량 정렬 대신 조직 체계).
+# region_name 으로 매칭 — 정의 없는 지자체는 None 반환 → 기존 평면(정비량순) 폴백.
+# 타 시군은 여기 자기 조직표를 추가하면 동일 동작(추후 config/DB화 여지).
+DEPT_GROUPS_BY_REGION = {
+    "군포시": [
+        ("01", "의회", ["의회사무과"]),
+        ("02", "기획예산실", ["기획예산실"]),
+        ("03", "홍보실", ["홍보실"]),
+        ("04", "감사실", ["감사실"]),
+        ("05", "행정지원국", ["행정지원과", "자치분권과", "민원봉사과",
+                              "스마트정보과", "교육체육과", "문화예술과"]),
+        ("06", "기업재정국", ["기업정책과", "지역경제과", "회계과", "세정과", "세원관리과"]),
+        ("07", "도시주택국", ["도시계획과", "도시개발과", "주택정책과", "건설과", "건축과"]),
+        ("08", "안전환경국", ["안전총괄과", "환경과", "위생자원과", "교통행정과", "차량관리과"]),
+        ("09", "복지국", ["복지정책과", "노인장애인과", "여성가족과", "아동청소년과",
+                          "중앙도서관", "산본도서관"]),
+        ("10", "직속기관(보건소)", ["보건행정과", "산본보건지소"]),
+        ("11", "사업소(수도녹지)", ["수도과", "하수과", "생태공원녹지과"]),
+        ("12", "하부행정기관", ["도시환경과", "군포1동", "군포2동", "산본1동", "산본2동",
+                                "금정동", "재궁동", "오금동", "수리동", "궁내동",
+                                "광정동", "대야동", "송부동"]),
+    ],
+}
+
+
+def _dept_groups(region_name, depts_by_name):
+    """담당과 집계를 소관업무별(편) 구조로 묶는다. 정의 없으면 None(→ 평면 폴백).
+
+    각 편은 정의된 과 순서를 따르고, 데이터 있는 과만 포함한다(편 전체가 비면 편 생략).
+    어느 편에도 안 든 과는 말미 '기타'로 모은다.
+    """
+    spec = DEPT_GROUPS_BY_REGION.get((region_name or "").strip())
+    if not spec:
+        return None
+    used, groups = set(), []
+    for no, name, members in spec:
+        rows = [depts_by_name[m] for m in members if m in depts_by_name]
+        used.update(m for m in members if m in depts_by_name)
+        if not rows:
+            continue
+        groups.append({
+            "no": no, "name": name,
+            "total": sum(r["total"] for r in rows),
+            "action": sum(r["action"] for r in rows),
+            "grades": {k: sum(r["grades"][k] for r in rows) for k in GRADE_KEYS},
+            "depts": rows})
+    etc = [d for nm, d in depts_by_name.items() if nm not in used]
+    if etc:
+        etc.sort(key=lambda d: (-d["action"], d["dept"]))
+        groups.append({
+            "no": "", "name": "기타",
+            "total": sum(d["total"] for d in etc),
+            "action": sum(d["action"] for d in etc),
+            "grades": {k: sum(d["grades"][k] for d in etc) for k in GRADE_KEYS},
+            "depts": etc})
+    return groups
+
+
 def overview(db_path=db.DEFAULT_DB):
     """대시보드 요약: 스냅샷 메타 + 전체 등급 집계 + 담당과별 집계."""
     conn = db.connect(db_path)
@@ -83,8 +142,9 @@ def overview(db_path=db.DEFAULT_DB):
         for k in GRADE_KEYS:
             d["grades"][k] += o["grades"][k]
 
-    # 정비 대상이 많은 과를 위로
+    # 정비 대상이 많은 과를 위로(평면 폴백·드롭다운·검색용). 소관업무별 편 구조는 별도.
     dept_list = sorted(depts.values(), key=lambda d: (-d["action"], d["dept"]))
+    region = (dict(meta).get("region_name") if meta else "") or ""
     return {
         "batch": (dict(meta) if meta else {}),
         "grades": grades,
@@ -95,6 +155,8 @@ def overview(db_path=db.DEFAULT_DB):
                    "action": sum(1 for o in ords if o["items_count"] > 0),
                    "depts": len(dept_list)},
         "depts": dept_list,
+        # 소관업무별(편) 그룹 — 정의된 지자체면 조직 순서 구조, 아니면 None(평면 폴백)
+        "dept_groups": _dept_groups(region, depts),
     }
 
 
@@ -430,6 +492,12 @@ th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #f1f3f5;}
 th{background:#f9fafb;color:#6b7280;font-weight:600;font-size:12px;position:sticky;top:0;}
 tbody tr{cursor:pointer;}
 tbody tr:hover{background:#f8fafc;}
+/* 소관업무별(편) 그룹 헤더 + 하위 과 들여쓰기 */
+tr.pyeon{cursor:default;background:#eef2f7;}
+tr.pyeon:hover{background:#eef2f7;}
+tr.pyeon td{font-weight:700;color:#1e3a8a;border-bottom:1px solid #d3ddea;font-size:13px;}
+td.subdept{padding-left:24px;position:relative;}
+td.subdept::before{content:"└";position:absolute;left:10px;color:#c0cad6;}
 td.num{text-align:right;font-variant-numeric:tabular-nums;}
 td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .dist{white-space:nowrap;}
@@ -669,17 +737,32 @@ function fillDeptSelect(){
     o.value=d.dept;o.textContent=`${d.dept} (정비 ${d.action}/${d.total})`;sel.appendChild(o);}
 }
 
+function _deptRow(d,sub){  // 담당과 1행 (sub=편 하위 들여쓰기)
+  const rep=d.action?`<a href="${deptReportHref(d.dept,'html')}" target="_blank" onclick="event.stopPropagation()">🖨</a>
+     <a href="${deptReportHref(d.dept,'csv')}" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
+  return `<tr data-dept="${esc(d.dept)}">
+   <td class="${sub?'subdept':''}">${esc(d.dept)}</td>
+   <td class="num">${d.action}</td><td class="num">${d.total}</td>
+   <td class="dist">${dist(d.grades)}</td><td class="rep">${rep}</td></tr>`;
+}
 function renderDeptTable(){
-  let rows=OV.depts.map(d=>{
-    const rep=d.action?`<a href="${deptReportHref(d.dept,'html')}" target="_blank" onclick="event.stopPropagation()">🖨</a>
-       <a href="${deptReportHref(d.dept,'csv')}" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
-    return `<tr data-dept="${esc(d.dept)}">
-     <td>${esc(d.dept)}</td>
-     <td class="num">${d.action}</td><td class="num">${d.total}</td>
-     <td class="dist">${dist(d.grades)}</td><td class="rep">${rep}</td></tr>`;}).join("");
+  const groups=OV.dept_groups;
+  let body, head;
+  if(groups){
+    // 소관업무별(편) — 공식 조직 순서로 편 헤더 + 하위 과. 정비량 정렬 대신 조직 체계.
+    body=groups.map(g=>
+      `<tr class="pyeon"><td>${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</td>
+        <td class="num">${g.action}</td><td class="num">${g.total}</td>
+        <td class="dist">${dist(g.grades)}</td><td></td></tr>`
+      + g.depts.map(d=>_deptRow(d,true)).join("")).join("");
+    head=`<th>소관업무 · 담당과</th>`;
+  }else{
+    body=OV.depts.map(d=>_deptRow(d,false)).join("");   // 평면 폴백(정비량순)
+    head=`<th>담당과</th>`;
+  }
   document.getElementById("listPanel").innerHTML=
-    `<table><thead><tr><th>담당과</th><th class="num">정비대상</th>
-     <th class="num">전체</th><th>등급 분포</th><th>리포트</th></tr></thead><tbody>${rows}</tbody></table>`;
+    `<table><thead><tr>${head}<th class="num">정비대상</th>
+     <th class="num">전체</th><th>등급 분포</th><th>리포트</th></tr></thead><tbody>${body}</tbody></table>`;
   document.querySelectorAll("#listPanel tr[data-dept]").forEach(tr=>
     tr.onclick=()=>{selectDept(tr.dataset.dept);});
 }
