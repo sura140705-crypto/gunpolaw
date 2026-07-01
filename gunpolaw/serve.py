@@ -483,8 +483,15 @@ td .lawhit{display:block;font-size:11.5px;color:#2563eb;margin-top:2px;}
 .controls select{font-size:14px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;
                  background:#fff;min-width:220px;}
 .controls label{font-size:13px;color:#374151;display:flex;gap:5px;align-items:center;}
-.controls .crumb{font-size:13px;color:#6b7280;}
+.controls .crumb{display:inline-flex;align-items:center;gap:10px;font-size:13px;color:#6b7280;flex-wrap:wrap;}
 .controls .crumb a{color:#2563eb;cursor:pointer;text-decoration:none;}
+/* 뒤로가기 버튼 — 작은 텍스트 링크 대신 또렷한 버튼(클릭 영역 확대) */
+.backbtn{font-size:13.5px;padding:7px 16px;border-radius:8px;background:#eff6ff;
+  border:1px solid #bfdbfe;color:#1e40af;font-weight:700;cursor:pointer;line-height:1;
+  display:inline-flex;align-items:center;}
+.backbtn:hover{background:#dbeafe;border-color:#93c5fd;}
+.controls .crumb .crumb-cur{color:#374151;font-size:14px;}
+.controls .crumb .crumb-link{font-size:12.5px;}
 .layout{display:grid;grid-template-columns:1fr;gap:16px;}
 .panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13.5px;}
@@ -940,11 +947,16 @@ function clearSearch(){
 }
 function renderCrumb(){
   const c=document.getElementById("crumb");
-  if(curQuery){c.innerHTML=`<a onclick="clearSearch()">← 검색 해제</a> · <b>검색 “${esc(curQuery)}”</b>`;return;}
+  if(curQuery){
+    c.innerHTML=`<button class="backbtn" onclick="clearSearch()">← 전체 목록</button>`
+      +`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`;
+    return;
+  }
   if(!curDept){c.innerHTML="";return;}
-  c.innerHTML=`<a onclick="selectDept('')">← 전체 담당과</a> · <b>${esc(curDept)}</b>`
-    +` · <a href="${deptReportHref(curDept,'html')}" target="_blank">🖨 과별 리포트</a>`
-    +` · <a href="${deptReportHref(curDept,'csv')}">CSV 내려받기</a>`;
+  c.innerHTML=`<button class="backbtn" onclick="selectDept('')">← 전체 담당과</button>`
+    +`<b class="crumb-cur">${esc(curDept)}</b>`
+    +`<a class="crumb-link" href="${deptReportHref(curDept,'html')}" target="_blank">🖨 과별 리포트</a>`
+    +`<a class="crumb-link" href="${deptReportHref(curDept,'csv')}">CSV 내려받기</a>`;
 }
 async function refresh(){
   closeDetail();
