@@ -624,14 +624,6 @@ a.lname:hover{text-decoration:underline;}
 .gchip.g-mech{color:var(--mech);border-color:#bfdbfe;} .gchip.g-rev{color:var(--rev);border-color:#fde68a;}
 .gchip.g-chk{color:var(--chk);border-color:#e5e7eb;} .gchip.g-fmt{color:var(--fmt);border-color:#ddd6fe;}
 .gchip.g-cur{color:var(--cur);border-color:#bbf7d0;}
-.hero-prio{margin-top:13px;border-top:1px solid #f1f3f5;padding-top:11px;display:flex;
-  align-items:center;gap:9px;flex-wrap:wrap;}
-.hp-title{font-size:12px;color:#6b7280;font-weight:700;}
-.hp-chips{display:flex;gap:6px;flex-wrap:wrap;}
-.hp-chip{font-size:12.5px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;
-  padding:5px 11px;cursor:pointer;color:#334155;}
-.hp-chip:hover{background:#e2e8f0;border-color:#cbd5e1;}
-.hp-chip b{color:#b45309;margin-left:3px;}
 
 /* ============ 소관업무 편 카드(아코디언) ============ */
 .plist{display:flex;flex-direction:column;gap:10px;}
@@ -758,37 +750,20 @@ async function fetchOrds(opts){     // 조례 목록(라이브=서버 필터 / �
 
 function gcls(k){return k==="mechanical"?"mech":k==="review"?"rev":k==="check"?"chk":k==="format"?"fmt":"cur";}
 function renderHero(){
-  const g=OV.grades, t=OV.totals, groups=OV.dept_groups;
+  const g=OV.grades, t=OV.totals;
   const pct=t.ordinances?Math.round(t.action/t.ordinances*100):0;
   let chips="";
   for(const k of GO){ if(!g[k])continue; const m=GM[k];
     chips+=`<span class="gchip g-${gcls(k)}">${m.emoji} ${esc(m.label)} ${g[k]}</span>`; }
-  let prio="";
-  if(groups){                                   // 바로가기용 컴팩트 칩(정비 많은 소관 상위)
-    const top=groups.filter(x=>x.action>0).sort((a,b)=>b.action-a.action).slice(0,6);
-    if(top.length) prio=`<div class="hero-prio"><span class="hp-title">바로가기 · 정비 많은 소관</span>`
-      +`<div class="hp-chips">`
-      +top.map(x=>`<button class="hp-chip" data-pname="${esc(x.name)}">${esc(x.name)}<b>${x.action}</b></button>`).join("")
-      +`</div></div>`;
-  }
   document.getElementById("hero").innerHTML=
     `<div class="hero-top"><div class="hero-num">${t.action}<small>건</small></div>
        <div class="hero-sub">정비 필요 조례 · 전체 <b>${t.ordinances}</b>건 중 ${pct}%</div></div>
      <div class="hero-bar"><i style="width:${pct}%"></i></div>
-     <div class="hero-grades">${chips}</div>${prio}`;
-  document.querySelectorAll("#hero .hp-chip").forEach(b=>b.onclick=()=>openPyeon(b.dataset.pname));
+     <div class="hero-grades">${chips}</div>`;
 }
 function togglePyeon(card){
   const open=card.classList.toggle("open");
   const arr=card.querySelector(".arr"); if(arr)arr.textContent=open?"▾":"▸";
-}
-function openPyeon(name){   // 급한 소관 클릭 → 홈으로 돌아가 해당 편 펼치고 스크롤
-  if(curDept||curQuery){curDept="";curQuery="";
-    document.getElementById("searchBox").value="";document.getElementById("deptSel").value="";
-    renderCrumb();renderDeptTable();}
-  const card=document.querySelector(`#listPanel .pcard[data-pname="${cssq(name)}"]`);
-  if(card){ if(!card.classList.contains("open"))togglePyeon(card);
-    card.scrollIntoView({behavior:"smooth",block:"start"}); }
 }
 function renderBanner(){
   const b=OV.batch||{};
