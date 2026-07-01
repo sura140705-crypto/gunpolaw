@@ -490,6 +490,9 @@ td .lawhit{display:block;font-size:11.5px;color:#2563eb;margin-top:2px;}
   border:1px solid #bfdbfe;color:#1e40af;font-weight:700;cursor:pointer;line-height:1;
   display:inline-flex;align-items:center;}
 .backbtn:hover{background:#dbeafe;border-color:#93c5fd;}
+/* 고정 첫페이지 버튼 — 항상 보이는 앵커라 솔리드로 또렷하게 */
+.homebtn{background:#1e40af;color:#fff;border-color:#1e40af;}
+.homebtn:hover{background:#1e3a8a;border-color:#1e3a8a;}
 .controls .crumb .crumb-cur{color:#374151;font-size:14px;}
 .controls .crumb .crumb-link{font-size:12.5px;}
 .layout{display:grid;grid-template-columns:1fr;gap:16px;}
@@ -614,10 +617,11 @@ a.lname:hover{text-decoration:underline;}
   <div class="cards" id="cards"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
-    <span class="crumb" id="crumb"></span>
+    <button class="backbtn homebtn" id="homeBtn" onclick="goHome()" title="첫페이지로 · 데이터 새로고침">🏠 첫페이지</button>
     <input type="search" id="searchBox" placeholder="🔍 조례명·인용 법령 검색" autocomplete="off">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
     <label><input type="checkbox" id="actChk"> 정비 대상만</label>
+    <span class="crumb" id="crumb"></span>
   </div>
   <div class="layout" id="layout">
     <div class="panel" id="listPanel"></div>
@@ -946,17 +950,24 @@ function clearSearch(){
   document.getElementById("searchBox").value=""; curQuery=""; refresh();
 }
 function renderCrumb(){
+  // 뒤로가기/새로고침은 고정 '🏠 첫페이지' 버튼이 담당 — crumb은 현재 맥락만 표시
   const c=document.getElementById("crumb");
-  if(curQuery){
-    c.innerHTML=`<button class="backbtn" onclick="clearSearch()">← 전체 목록</button>`
-      +`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`;
-    return;
-  }
+  if(curQuery){c.innerHTML=`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`;return;}
   if(!curDept){c.innerHTML="";return;}
-  c.innerHTML=`<button class="backbtn" onclick="selectDept('')">← 전체 담당과</button>`
-    +`<b class="crumb-cur">${esc(curDept)}</b>`
+  c.innerHTML=`<b class="crumb-cur">${esc(curDept)}</b>`
     +`<a class="crumb-link" href="${deptReportHref(curDept,'html')}" target="_blank">🖨 과별 리포트</a>`
     +`<a class="crumb-link" href="${deptReportHref(curDept,'csv')}">CSV 내려받기</a>`;
+}
+async function goHome(){
+  // 첫페이지로 복귀 + 데이터 새로고침(overview·changes 재조회) — 상세/검색/과 선택 초기화
+  const sb=document.getElementById("searchBox"); if(sb)sb.value="";
+  const ds=document.getElementById("deptSel"); if(ds)ds.value="";
+  const ac=document.getElementById("actChk"); if(ac)ac.checked=false;
+  curDept=""; curQuery=""; _ALLORDS=null;
+  closeDetail();
+  try{OV=await getJSON("/api/overview");}catch(e){}
+  renderBanner(); renderCards(); renderChanges();
+  renderCrumb(); renderDeptTable();
 }
 async function refresh(){
   closeDetail();
