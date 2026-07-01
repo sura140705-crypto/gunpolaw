@@ -624,17 +624,14 @@ a.lname:hover{text-decoration:underline;}
 .gchip.g-mech{color:var(--mech);border-color:#bfdbfe;} .gchip.g-rev{color:var(--rev);border-color:#fde68a;}
 .gchip.g-chk{color:var(--chk);border-color:#e5e7eb;} .gchip.g-fmt{color:var(--fmt);border-color:#ddd6fe;}
 .gchip.g-cur{color:var(--cur);border-color:#bbf7d0;}
-.hero-prio{margin-top:16px;border-top:1px solid #f1f3f5;padding-top:12px;}
-.hp-title{font-size:12.5px;color:#6b7280;font-weight:700;margin-bottom:8px;}
-.hp-list{display:flex;flex-direction:column;gap:6px;}
-.hp-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
-  background:#f8fafc;border:1px solid #eef0f3;border-radius:10px;padding:10px 14px;font-size:14px;color:#1f2937;}
-.hp-item:hover{background:#eef2f7;border-color:#dbe3ec;}
-.hp-item .rank{font-weight:800;color:#94a3b8;font-size:13px;min-width:16px;}
-.hp-item .nm{flex:1;font-weight:600;}
-.hp-item .cnt{font-weight:800;color:#b45309;font-size:16px;}
-.hp-item .cnt small{font-size:12px;color:#9ca3af;font-weight:600;}
-.hp-more{margin-top:8px;font-size:13px;color:#2563eb;background:none;border:none;cursor:pointer;padding:4px;}
+.hero-prio{margin-top:13px;border-top:1px solid #f1f3f5;padding-top:11px;display:flex;
+  align-items:center;gap:9px;flex-wrap:wrap;}
+.hp-title{font-size:12px;color:#6b7280;font-weight:700;}
+.hp-chips{display:flex;gap:6px;flex-wrap:wrap;}
+.hp-chip{font-size:12.5px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;
+  padding:5px 11px;cursor:pointer;color:#334155;}
+.hp-chip:hover{background:#e2e8f0;border-color:#cbd5e1;}
+.hp-chip b{color:#b45309;margin-left:3px;}
 
 /* ============ 소관업무 편 카드(아코디언) ============ */
 .plist{display:flex;flex-direction:column;gap:10px;}
@@ -644,6 +641,7 @@ a.lname:hover{text-decoration:underline;}
 .pcard.open .pcard-hd{background:#f6f9fc;border-bottom:1px solid #eef0f3;}
 .pcard-hd .arr{color:#94a3b8;font-size:12px;width:14px;flex:0 0 auto;}
 .pcard-hd .pn{flex:1;font-size:15px;font-weight:700;color:#13325b;}
+.pcard-hd .pgrades{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;}
 .pcard-hd .ps{font-size:13px;color:#6b7280;white-space:nowrap;}
 .pcard-hd .ps b{color:#b45309;font-size:15px;}
 .pcard-body{display:none;padding:6px 10px 10px;}
@@ -669,6 +667,7 @@ a.lname:hover{text-decoration:underline;}
 @media (max-width:760px){
   .wrap{padding:14px 12px 60px;}
   h1{font-size:18px;}
+  .pcard-hd .pgrades{display:none;}       /* 모바일=간단: 편 등급칩 숨김 */
   .banner{font-size:12px;}
   .hero{padding:15px 15px;border-radius:12px;}
   .hero-num{font-size:38px;}
@@ -765,23 +764,19 @@ function renderHero(){
   for(const k of GO){ if(!g[k])continue; const m=GM[k];
     chips+=`<span class="gchip g-${gcls(k)}">${m.emoji} ${esc(m.label)} ${g[k]}</span>`; }
   let prio="";
-  if(groups){                                   // 급한 소관(실·국) 순 상위 5
-    const top=groups.filter(x=>x.action>0).sort((a,b)=>b.action-a.action);
-    const show=top.slice(0,5), rk=["①","②","③","④","⑤"];
-    prio=`<div class="hero-prio"><div class="hp-title">급한 소관 순</div><div class="hp-list">`
-      +show.map((x,i)=>`<button class="hp-item" data-pname="${esc(x.name)}">
-          <span class="rank">${rk[i]||(i+1)}</span><span class="nm">${esc(x.name)}</span>
-          <span class="cnt">${x.action}<small>/${x.total}</small></span></button>`).join("")
-      +`</div>`+(top.length>show.length
-        ?`<button class="hp-more" onclick="document.getElementById('listPanel').scrollIntoView({behavior:'smooth'})">전체 소관 보기 ▾</button>`:"")
-      +`</div>`;
+  if(groups){                                   // 바로가기용 컴팩트 칩(정비 많은 소관 상위)
+    const top=groups.filter(x=>x.action>0).sort((a,b)=>b.action-a.action).slice(0,6);
+    if(top.length) prio=`<div class="hero-prio"><span class="hp-title">바로가기 · 정비 많은 소관</span>`
+      +`<div class="hp-chips">`
+      +top.map(x=>`<button class="hp-chip" data-pname="${esc(x.name)}">${esc(x.name)}<b>${x.action}</b></button>`).join("")
+      +`</div></div>`;
   }
   document.getElementById("hero").innerHTML=
     `<div class="hero-top"><div class="hero-num">${t.action}<small>건</small></div>
        <div class="hero-sub">정비 필요 조례 · 전체 <b>${t.ordinances}</b>건 중 ${pct}%</div></div>
      <div class="hero-bar"><i style="width:${pct}%"></i></div>
      <div class="hero-grades">${chips}</div>${prio}`;
-  document.querySelectorAll("#hero .hp-item").forEach(b=>b.onclick=()=>openPyeon(b.dataset.pname));
+  document.querySelectorAll("#hero .hp-chip").forEach(b=>b.onclick=()=>openPyeon(b.dataset.pname));
 }
 function togglePyeon(card){
   const open=card.classList.toggle("open");
@@ -875,11 +870,13 @@ function renderDeptTable(){
     P.querySelectorAll(".ocard[data-dept]").forEach(c=>c.onclick=()=>selectDept(c.dataset.dept));
     return;
   }
-  // 소관업무별(편) 카드 아코디언 — 편 눌러 하위 과 펼침
-  P.innerHTML=`<div class="listhd">소관업무별 · 편을 눌러 하위 과 보기</div><div class="plist">`
-    +groups.map(g=>`<div class="pcard" data-pname="${esc(g.name)}">
-        <button class="pcard-hd"><span class="arr">▸</span>
+  // 소관업무별(편) 카드 — 데스크톱(총괄)=기본 펼침·편별 등급 상세, 모바일=접힘·간단
+  const wide=!window.matchMedia("(max-width:760px)").matches;
+  P.innerHTML=`<div class="listhd">소관업무별 ${wide?'— 실·국별 상세 (클릭해 접기)':'· 편을 눌러 하위 과'}</div><div class="plist">`
+    +groups.map(g=>`<div class="pcard${wide?' open':''}" data-pname="${esc(g.name)}">
+        <button class="pcard-hd"><span class="arr">${wide?'▾':'▸'}</span>
           <span class="pn">${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</span>
+          <span class="pgrades">${dist(g.grades)}</span>
           <span class="ps">정비 <b>${g.action}</b> / ${g.total}</span></button>
         <div class="pcard-body">${g.depts.map(_deptCard).join("")}</div></div>`).join("")
     +`</div>`;
