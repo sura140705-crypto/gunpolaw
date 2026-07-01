@@ -492,10 +492,13 @@ th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #f1f3f5;}
 th{background:#f9fafb;color:#6b7280;font-weight:600;font-size:12px;position:sticky;top:0;}
 tbody tr{cursor:pointer;}
 tbody tr:hover{background:#f8fafc;}
-/* 소관업무별(편) 그룹 헤더 + 하위 과 들여쓰기 */
-tr.pyeon{cursor:default;background:#eef2f7;}
-tr.pyeon:hover{background:#eef2f7;}
+/* 소관업무별(편) 그룹 헤더(클릭 접이) + 하위 과 들여쓰기 */
+tr.pyeon{cursor:pointer;background:#eef2f7;}
+tr.pyeon:hover{background:#e2e9f2;}
+tr.pyeon.open{background:#e2e9f2;}
 tr.pyeon td{font-weight:700;color:#1e3a8a;border-bottom:1px solid #d3ddea;font-size:13px;}
+tr.pyeon .parr{display:inline-block;width:14px;color:#64748b;font-size:11px;}
+tr.subrow:hover{background:#f8fafc;}
 td.subdept{padding-left:24px;position:relative;}
 td.subdept::before{content:"└";position:absolute;left:10px;color:#c0cad6;}
 td.num{text-align:right;font-variant-numeric:tabular-nums;}
@@ -737,24 +740,25 @@ function fillDeptSelect(){
     o.value=d.dept;o.textContent=`${d.dept} (정비 ${d.action}/${d.total})`;sel.appendChild(o);}
 }
 
-function _deptRow(d,sub){  // 담당과 1행 (sub=편 하위 들여쓰기)
+function _deptRow(d,sub,p){  // 담당과 1행 (sub=들여쓰기, p=소속 편 index면 접힘 하위행)
   const rep=d.action?`<a href="${deptReportHref(d.dept,'html')}" target="_blank" onclick="event.stopPropagation()">🖨</a>
      <a href="${deptReportHref(d.dept,'csv')}" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
-  return `<tr data-dept="${esc(d.dept)}">
+  const hid=(p!=null)?` data-p="${p}" style="display:none"`:"";
+  return `<tr class="${p!=null?'subrow':''}" data-dept="${esc(d.dept)}"${hid}>
    <td class="${sub?'subdept':''}">${esc(d.dept)}</td>
    <td class="num">${d.action}</td><td class="num">${d.total}</td>
    <td class="dist">${dist(d.grades)}</td><td class="rep">${rep}</td></tr>`;
 }
 function renderDeptTable(){
   const groups=OV.dept_groups;
-  let body, head;
-  if(groups){
-    // 소관업무별(편) — 공식 조직 순서로 편 헤더 + 하위 과. 정비량 정렬 대신 조직 체계.
-    body=groups.map(g=>
-      `<tr class="pyeon"><td>${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</td>
+  let body, head, grouped=!!groups;
+  if(grouped){
+    // 소관업무별(편) — 편 헤더는 기본 접힘, 클릭 시 하위 과 펼침(아코디언).
+    body=groups.map((g,i)=>
+      `<tr class="pyeon" data-ptoggle="${i}"><td><span class="parr">▸</span>${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</td>
         <td class="num">${g.action}</td><td class="num">${g.total}</td>
         <td class="dist">${dist(g.grades)}</td><td></td></tr>`
-      + g.depts.map(d=>_deptRow(d,true)).join("")).join("");
+      + g.depts.map(d=>_deptRow(d,true,i)).join("")).join("");
     head=`<th>소관업무 · 담당과</th>`;
   }else{
     body=OV.depts.map(d=>_deptRow(d,false)).join("");   // 평면 폴백(정비량순)
@@ -763,6 +767,13 @@ function renderDeptTable(){
   document.getElementById("listPanel").innerHTML=
     `<table><thead><tr>${head}<th class="num">정비대상</th>
      <th class="num">전체</th><th>등급 분포</th><th>리포트</th></tr></thead><tbody>${body}</tbody></table>`;
+  if(grouped) document.querySelectorAll("#listPanel tr.pyeon[data-ptoggle]").forEach(tr=>
+    tr.onclick=()=>{
+      const i=tr.dataset.ptoggle, open=tr.classList.toggle("open");
+      document.querySelectorAll(`#listPanel tr.subrow[data-p="${i}"]`)
+        .forEach(r=>r.style.display=open?"":"none");
+      const arr=tr.querySelector(".parr"); if(arr)arr.textContent=open?"▾":"▸";
+    });
   document.querySelectorAll("#listPanel tr[data-dept]").forEach(tr=>
     tr.onclick=()=>{selectDept(tr.dataset.dept);});
 }
