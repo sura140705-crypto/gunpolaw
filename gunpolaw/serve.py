@@ -849,11 +849,10 @@ function renderDeptTable(){
     P.querySelectorAll(".ocard[data-dept]").forEach(c=>c.onclick=()=>selectDept(c.dataset.dept));
     return;
   }
-  // 소관업무별(편) 카드 — 데스크톱(총괄)=기본 펼침·편별 등급 상세, 모바일=접힘·간단
-  const wide=!window.matchMedia("(max-width:760px)").matches;
-  P.innerHTML=`<div class="listhd">소관업무별 ${wide?'— 실·국별 상세 (클릭해 접기)':'· 편을 눌러 하위 과'}</div><div class="plist">`
-    +groups.map(g=>`<div class="pcard${wide?' open':''}" data-pname="${esc(g.name)}">
-        <button class="pcard-hd"><span class="arr">${wide?'▾':'▸'}</span>
+  // 소관업무별(편) 카드 — 기본 접힘, 편을 눌러 하위 과 펼침(데스크톱은 편별 등급칩도 표시)
+  P.innerHTML=`<div class="listhd">소관업무별 · 편을 눌러 하위 과 보기</div><div class="plist">`
+    +groups.map(g=>`<div class="pcard" data-pname="${esc(g.name)}">
+        <button class="pcard-hd"><span class="arr">▸</span>
           <span class="pn">${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</span>
           <span class="pgrades">${dist(g.grades)}</span>
           <span class="ps">정비 <b>${g.action}</b> / ${g.total}</span></button>
