@@ -326,10 +326,14 @@ class _Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path = u.path
         try:
+            # HTML은 no-cache — 재배포/수정이 브라우저 캐시에 막히지 않도록
+            nocache = {"Cache-Control": "no-cache, no-store, must-revalidate"}
             if path == "/" or path == "/index.html":
-                return self._send(DASHBOARD_HTML, ctype="text/html; charset=utf-8")
+                return self._send(DASHBOARD_HTML, ctype="text/html; charset=utf-8",
+                                  headers=nocache)
             if path == "/admin":
-                return self._send(ADMIN_HTML, ctype="text/html; charset=utf-8")
+                return self._send(ADMIN_HTML, ctype="text/html; charset=utf-8",
+                                  headers=nocache)
             if path == "/api/admin/findings":
                 from .diag import list_findings
                 q = parse_qs(u.query)
