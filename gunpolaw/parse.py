@@ -20,6 +20,22 @@ def is_admrul_id(law_id):
     return str(law_id or "").startswith(ADM_PREFIX)
 
 
+# 담당부서명이 여러 과로 오는 경우('건설과, 위생자원과, 지역경제과') 구분자.
+_DEPT_SPLIT = re.compile(r"\s*[,，、/;]\s*")
+
+
+def primary_dept(s):
+    """담당부서명이 여러 과면 맨 앞(대표과)만 취한다.
+
+    '건설과, 위생자원과, 지역경제과' → '건설과'. 과별 리포트·대시보드 그룹핑이
+    전체 문자열을 한 과로 오인하지 않도록 라우팅 축을 대표과로 좁힌다.
+    """
+    s = (s or "").strip()
+    if not s:
+        return ""
+    return _DEPT_SPLIT.split(s)[0].strip() or s
+
+
 def decode_article_code(code):
     """'003000' -> '제30조', '001502' -> '제15조의2', 'null/000000' -> ''."""
     code = (code or "").strip()
@@ -52,7 +68,7 @@ def parse_ordinance_body(xml):
         "promulg_date": (info.findtext("공포일자") or "").strip(),
         # 담당과(담당부서명)·전화번호는 목록 API엔 없고 본문에만 있다 → 여기서 추출해 영속화.
         # dept = 과별 리포트 라우팅 축, phone = 통지 연락처.
-        "dept": (info.findtext("담당부서명") or "").strip(),
+        "dept": primary_dept(info.findtext("담당부서명")),
         "phone": (info.findtext("전화번호") or "").strip(),
     }
     articles = []
