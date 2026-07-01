@@ -609,12 +609,92 @@ a.lname:hover{text-decoration:underline;}
 .changes .ackb.done{border-color:#16a34a;color:#16a34a;}
 .changes .ackb.done:hover{background:#dcfce7;}
 .changes .ackb:disabled{opacity:.5;cursor:default;}
+
+/* ============ 요약 우선형 히어로 ============ */
+.hero{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px 20px;margin:0 0 16px;}
+.hero-top{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;}
+.hero-num{font-size:44px;font-weight:800;line-height:.95;color:#b45309;}
+.hero-num small{font-size:20px;font-weight:700;margin-left:3px;}
+.hero-sub{font-size:14px;color:#6b7280;padding-bottom:5px;}
+.hero-sub b{color:#374151;}
+.hero-bar{height:12px;border-radius:99px;background:#f1f3f5;overflow:hidden;margin:12px 0 4px;}
+.hero-bar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:99px;}
+.hero-grades{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.gchip{font-size:13px;font-weight:700;padding:6px 12px;border-radius:99px;border:1px solid;background:#fff;white-space:nowrap;}
+.gchip.g-mech{color:var(--mech);border-color:#bfdbfe;} .gchip.g-rev{color:var(--rev);border-color:#fde68a;}
+.gchip.g-chk{color:var(--chk);border-color:#e5e7eb;} .gchip.g-fmt{color:var(--fmt);border-color:#ddd6fe;}
+.gchip.g-cur{color:var(--cur);border-color:#bbf7d0;}
+.hero-prio{margin-top:16px;border-top:1px solid #f1f3f5;padding-top:12px;}
+.hp-title{font-size:12.5px;color:#6b7280;font-weight:700;margin-bottom:8px;}
+.hp-list{display:flex;flex-direction:column;gap:6px;}
+.hp-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
+  background:#f8fafc;border:1px solid #eef0f3;border-radius:10px;padding:10px 14px;font-size:14px;color:#1f2937;}
+.hp-item:hover{background:#eef2f7;border-color:#dbe3ec;}
+.hp-item .rank{font-weight:800;color:#94a3b8;font-size:13px;min-width:16px;}
+.hp-item .nm{flex:1;font-weight:600;}
+.hp-item .cnt{font-weight:800;color:#b45309;font-size:16px;}
+.hp-item .cnt small{font-size:12px;color:#9ca3af;font-weight:600;}
+.hp-more{margin-top:8px;font-size:13px;color:#2563eb;background:none;border:none;cursor:pointer;padding:4px;}
+
+/* ============ 소관업무 편 카드(아코디언) ============ */
+.plist{display:flex;flex-direction:column;gap:10px;}
+.pcard{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;}
+.pcard-hd{display:flex;align-items:center;gap:10px;width:100%;cursor:pointer;background:#fff;
+  border:none;padding:14px 16px;text-align:left;}
+.pcard.open .pcard-hd{background:#f6f9fc;border-bottom:1px solid #eef0f3;}
+.pcard-hd .arr{color:#94a3b8;font-size:12px;width:14px;flex:0 0 auto;}
+.pcard-hd .pn{flex:1;font-size:15px;font-weight:700;color:#13325b;}
+.pcard-hd .ps{font-size:13px;color:#6b7280;white-space:nowrap;}
+.pcard-hd .ps b{color:#b45309;font-size:15px;}
+.pcard-body{display:none;padding:6px 10px 10px;}
+.pcard.open .pcard-body{display:block;}
+.dcard{display:flex;align-items:center;gap:10px;cursor:pointer;border-radius:9px;padding:11px 12px;}
+.dcard:hover{background:#f8fafc;}
+.dcard+.dcard{border-top:1px solid #f3f4f6;}
+.dcard .dn{flex:1;font-size:14px;color:#374151;font-weight:600;}
+.dcard .dd{font-size:12.5px;color:#9ca3af;white-space:nowrap;}
+.dcard .dchips{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;}
+
+/* ============ 조례 목록 카드 ============ */
+.olist{display:flex;flex-direction:column;gap:9px;}
+.ocard{background:#fff;border:1px solid #e5e7eb;border-radius:11px;padding:13px 15px;cursor:pointer;}
+.ocard:hover{border-color:#bfdbfe;background:#fbfdff;}
+.ocard .on{font-size:14.5px;font-weight:600;color:#1f2937;line-height:1.4;}
+.ocard .om{font-size:12.5px;color:#9ca3af;margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.ocard .ochips{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;}
+.ocard .lawhit{color:#2563eb;font-size:12px;}
+.listhd{font-size:12.5px;color:#6b7280;margin:2px 2px 10px;font-weight:600;}
+
+/* ============ 반응형(모바일) ============ */
+@media (max-width:760px){
+  .wrap{padding:14px 12px 60px;}
+  h1{font-size:18px;}
+  .banner{font-size:12px;}
+  .hero{padding:15px 15px;border-radius:12px;}
+  .hero-num{font-size:38px;}
+  .controls{gap:8px;}
+  .controls #searchBox{min-width:0;flex:1 1 100%;font-size:16px;}  /* 16px=iOS 확대방지 */
+  .controls select{flex:1 1 100%;min-width:0;}
+  .controls label{flex:1 1 auto;}
+  #homeBtn{flex:0 0 auto;}
+  /* 상세: 좌 본문 | 우 검토 → 세로 스택 + 탭 전환 */
+  .dsplit{grid-template-columns:1fr;}
+  .dbody{border-right:none;max-height:none;}
+  .drec{max-height:none;}
+  .mtabs{display:flex;gap:6px;margin:4px 0 10px;}
+  .mtabs button{flex:1;padding:9px;border:1px solid #d1d5db;border-radius:9px;background:#fff;
+    font-size:14px;font-weight:600;cursor:pointer;color:#374151;}
+  .mtabs button.on{background:#13325b;color:#fff;border-color:#13325b;}
+  .dsplit.show-body .drec{display:none;}
+  .dsplit.show-rec .dbody{display:none;}
+}
+@media (min-width:761px){ .mtabs{display:none;} }
 </style></head>
 <body><div class="wrap">
   <h1>자치법규 정비 — 총괄 대시보드
     <a href="/admin" id="adminLink" style="float:right;font-size:13px;font-weight:400;color:#6b7280;text-decoration:none">🔧 판정 근거 검사</a></h1>
   <div class="banner" id="banner">불러오는 중…</div>
-  <div class="cards" id="cards"></div>
+  <div class="hero" id="hero"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
     <button class="backbtn homebtn" id="homeBtn" onclick="goHome()" title="첫페이지로 · 데이터 새로고침">🏠 첫페이지</button>
@@ -677,13 +757,43 @@ async function fetchOrds(opts){     // 조례 목록(라이브=서버 필터 / �
   return list;
 }
 
-function renderCards(){
-  const g=OV.grades, t=OV.totals;
-  let h=`<div class="card"><div class="n">${t.action}</div><div class="t">정비 대상 조례 / 전체 ${t.ordinances}</div></div>`;
-  for(const k of GO){const m=GM[k];
-    h+=`<div class="card g-${k==="mechanical"?"mech":k==="review"?"rev":k==="check"?"chk":k==="format"?"fmt":"cur"}">
-        <div class="n">${g[k]}</div><div class="t">${m.emoji} ${esc(m.label)}</div></div>`;}
-  document.getElementById("cards").innerHTML=h;
+function gcls(k){return k==="mechanical"?"mech":k==="review"?"rev":k==="check"?"chk":k==="format"?"fmt":"cur";}
+function renderHero(){
+  const g=OV.grades, t=OV.totals, groups=OV.dept_groups;
+  const pct=t.ordinances?Math.round(t.action/t.ordinances*100):0;
+  let chips="";
+  for(const k of GO){ if(!g[k])continue; const m=GM[k];
+    chips+=`<span class="gchip g-${gcls(k)}">${m.emoji} ${esc(m.label)} ${g[k]}</span>`; }
+  let prio="";
+  if(groups){                                   // 급한 소관(실·국) 순 상위 5
+    const top=groups.filter(x=>x.action>0).sort((a,b)=>b.action-a.action);
+    const show=top.slice(0,5), rk=["①","②","③","④","⑤"];
+    prio=`<div class="hero-prio"><div class="hp-title">급한 소관 순</div><div class="hp-list">`
+      +show.map((x,i)=>`<button class="hp-item" data-pname="${esc(x.name)}">
+          <span class="rank">${rk[i]||(i+1)}</span><span class="nm">${esc(x.name)}</span>
+          <span class="cnt">${x.action}<small>/${x.total}</small></span></button>`).join("")
+      +`</div>`+(top.length>show.length
+        ?`<button class="hp-more" onclick="document.getElementById('listPanel').scrollIntoView({behavior:'smooth'})">전체 소관 보기 ▾</button>`:"")
+      +`</div>`;
+  }
+  document.getElementById("hero").innerHTML=
+    `<div class="hero-top"><div class="hero-num">${t.action}<small>건</small></div>
+       <div class="hero-sub">정비 필요 조례 · 전체 <b>${t.ordinances}</b>건 중 ${pct}%</div></div>
+     <div class="hero-bar"><i style="width:${pct}%"></i></div>
+     <div class="hero-grades">${chips}</div>${prio}`;
+  document.querySelectorAll("#hero .hp-item").forEach(b=>b.onclick=()=>openPyeon(b.dataset.pname));
+}
+function togglePyeon(card){
+  const open=card.classList.toggle("open");
+  const arr=card.querySelector(".arr"); if(arr)arr.textContent=open?"▾":"▸";
+}
+function openPyeon(name){   // 급한 소관 클릭 → 홈으로 돌아가 해당 편 펼치고 스크롤
+  if(curDept||curQuery){curDept="";curQuery="";
+    document.getElementById("searchBox").value="";document.getElementById("deptSel").value="";
+    renderCrumb();renderDeptTable();}
+  const card=document.querySelector(`#listPanel .pcard[data-pname="${cssq(name)}"]`);
+  if(card){ if(!card.classList.contains("open"))togglePyeon(card);
+    card.scrollIntoView({behavior:"smooth",block:"start"}); }
 }
 function renderBanner(){
   const b=OV.batch||{};
@@ -751,75 +861,55 @@ function fillDeptSelect(){
     o.value=d.dept;o.textContent=`${d.dept} (정비 ${d.action}/${d.total})`;sel.appendChild(o);}
 }
 
-function _deptRow(d,sub,p){  // 담당과 1행 (sub=들여쓰기, p=소속 편 index면 접힘 하위행)
-  const rep=d.action?`<a href="${deptReportHref(d.dept,'html')}" target="_blank" onclick="event.stopPropagation()">🖨</a>
-     <a href="${deptReportHref(d.dept,'csv')}" onclick="event.stopPropagation()">CSV</a>`:'<span class="muted">—</span>';
-  const hid=(p!=null)?` data-p="${p}" style="display:none"`:"";
-  return `<tr class="${p!=null?'subrow':''}" data-dept="${esc(d.dept)}"${hid}>
-   <td class="${sub?'subdept':''}">${esc(d.dept)}</td>
-   <td class="num">${d.action}</td><td class="num">${d.total}</td>
-   <td class="dist">${dist(d.grades)}</td><td class="rep">${rep}</td></tr>`;
+function _deptCard(d){
+  return `<div class="dcard" data-dept="${esc(d.dept)}"><span class="dn">${esc(d.dept)}</span>
+    <span class="dd">정비 ${d.action}/${d.total}</span><span class="dchips">${dist(d.grades)}</span></div>`;
 }
 function renderDeptTable(){
-  const groups=OV.dept_groups;
-  let body, head, grouped=!!groups;
-  if(grouped){
-    // 소관업무별(편) — 편 헤더는 기본 접힘, 클릭 시 하위 과 펼침(아코디언).
-    body=groups.map((g,i)=>
-      `<tr class="pyeon" data-ptoggle="${i}"><td><span class="parr">▸</span>${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</td>
-        <td class="num">${g.action}</td><td class="num">${g.total}</td>
-        <td class="dist">${dist(g.grades)}</td><td></td></tr>`
-      + g.depts.map(d=>_deptRow(d,true,i)).join("")).join("");
-    head=`<th>소관업무 · 담당과</th>`;
-  }else{
-    body=OV.depts.map(d=>_deptRow(d,false)).join("");   // 평면 폴백(정비량순)
-    head=`<th>담당과</th>`;
+  const groups=OV.dept_groups, P=document.getElementById("listPanel");
+  if(!groups){   // 폴백(타 시군): 담당과 정비량순 카드
+    P.innerHTML=`<div class="listhd">담당과 · 정비 많은 순</div><div class="olist">`
+      +OV.depts.map(d=>`<div class="ocard" data-dept="${esc(d.dept)}"><div class="on">${esc(d.dept)}</div>
+         <div class="om">정비 ${d.action} · 전체 ${d.total}</div><div class="ochips">${dist(d.grades)}</div></div>`).join("")
+      +`</div>`;
+    P.querySelectorAll(".ocard[data-dept]").forEach(c=>c.onclick=()=>selectDept(c.dataset.dept));
+    return;
   }
-  document.getElementById("listPanel").innerHTML=
-    `<table><thead><tr>${head}<th class="num">정비대상</th>
-     <th class="num">전체</th><th>등급 분포</th><th>리포트</th></tr></thead><tbody>${body}</tbody></table>`;
-  if(grouped) document.querySelectorAll("#listPanel tr.pyeon[data-ptoggle]").forEach(tr=>
-    tr.onclick=()=>{
-      const i=tr.dataset.ptoggle, open=tr.classList.toggle("open");
-      document.querySelectorAll(`#listPanel tr.subrow[data-p="${i}"]`)
-        .forEach(r=>r.style.display=open?"":"none");
-      const arr=tr.querySelector(".parr"); if(arr)arr.textContent=open?"▾":"▸";
-    });
-  document.querySelectorAll("#listPanel tr[data-dept]").forEach(tr=>
-    tr.onclick=()=>{selectDept(tr.dataset.dept);});
+  // 소관업무별(편) 카드 아코디언 — 편 눌러 하위 과 펼침
+  P.innerHTML=`<div class="listhd">소관업무별 · 편을 눌러 하위 과 보기</div><div class="plist">`
+    +groups.map(g=>`<div class="pcard" data-pname="${esc(g.name)}">
+        <button class="pcard-hd"><span class="arr">▸</span>
+          <span class="pn">${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</span>
+          <span class="ps">정비 <b>${g.action}</b> / ${g.total}</span></button>
+        <div class="pcard-body">${g.depts.map(_deptCard).join("")}</div></div>`).join("")
+    +`</div>`;
+  P.querySelectorAll(".pcard-hd").forEach(hd=>hd.onclick=()=>togglePyeon(hd.parentElement));
+  P.querySelectorAll(".dcard[data-dept]").forEach(c=>c.onclick=()=>selectDept(c.dataset.dept));
 }
 
+function _ordCard(o,showDept){
+  const hit=(o.law_hits&&o.law_hits.length)
+    ?`<span class="lawhit">↳ ${esc(o.law_hits.slice(0,2).join(", "))}${o.law_hits.length>2?" 외 "+(o.law_hits.length-2):""}</span>`:"";
+  return `<div class="ocard" data-mst="${esc(o.mst)}"><div class="on">${esc(o.name)}</div>
+    <div class="om">${showDept&&o.dept?esc(o.dept)+" · ":""}시행 ${fdate(o.enforce_date)} · 정비 ${o.items_count}건 ${hit}</div>
+    <div class="ochips">${dist(o.grades)}</div></div>`;
+}
 async function renderOrdList(){
   const list=await fetchOrds({dept:curDept, action:document.getElementById("actChk").checked});
-  if(!list.length){document.getElementById("listPanel").innerHTML=
-    `<div class="empty">해당 조건의 조례가 없습니다.</div>`;return;}
-  let rows=list.map(o=>`<tr data-mst="${esc(o.mst)}">
-     <td>${esc(o.name)}</td><td class="muted">${fdate(o.enforce_date)}</td>
-     <td class="num">${o.items_count}</td><td class="dist">${dist(o.grades)}</td></tr>`).join("");
-  document.getElementById("listPanel").innerHTML=
-    `<table><thead><tr><th>조례</th><th>시행일</th><th class="num">정비</th>
-     <th>등급</th></tr></thead><tbody>${rows}</tbody></table>`;
-  document.querySelectorAll("#listPanel tr[data-mst]").forEach(tr=>
-    tr.onclick=()=>{selectOrd(tr.dataset.mst);});
+  const P=document.getElementById("listPanel");
+  if(!list.length){P.innerHTML=`<div class="empty">해당 조건의 조례가 없습니다.</div>`;return;}
+  P.innerHTML=`<div class="listhd">${esc(curDept)} · 조례 ${list.length}건</div><div class="olist">`
+    +list.map(o=>_ordCard(o,false)).join("")+`</div>`;
+  P.querySelectorAll(".ocard[data-mst]").forEach(c=>c.onclick=()=>selectOrd(c.dataset.mst));
 }
-
 async function renderSearch(){
-  // 자유검색 결과(담당과 교차) — 조례명 또는 인용 법령명 매치. 담당과 컬럼 표시.
+  // 자유검색(조례명 또는 인용 법령명 매치, 담당과 교차)
   const list=await fetchOrds({q:curQuery, action:document.getElementById("actChk").checked});
-  if(!list.length){document.getElementById("listPanel").innerHTML=
-    `<div class="empty">'${esc(curQuery)}' 검색 결과 없음.</div>`;return;}
-  let rows=list.map(o=>{
-    const hit=(o.law_hits&&o.law_hits.length)
-      ?`<span class="lawhit">↳ 인용 법령: ${esc(o.law_hits.slice(0,3).join(", "))}${o.law_hits.length>3?" 외 "+(o.law_hits.length-3):""}</span>`:"";
-    return `<tr data-mst="${esc(o.mst)}">
-     <td>${esc(o.name)}${hit}</td><td class="muted">${esc(o.dept)}</td>
-     <td class="muted">${fdate(o.enforce_date)}</td>
-     <td class="num">${o.items_count}</td><td class="dist">${dist(o.grades)}</td></tr>`;}).join("");
-  document.getElementById("listPanel").innerHTML=
-    `<table><thead><tr><th>조례 (${list.length})</th><th>담당과</th><th>시행일</th>
-     <th class="num">정비</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table>`;
-  document.querySelectorAll("#listPanel tr[data-mst]").forEach(tr=>
-    tr.onclick=()=>{selectOrd(tr.dataset.mst);});
+  const P=document.getElementById("listPanel");
+  if(!list.length){P.innerHTML=`<div class="empty">'${esc(curQuery)}' 검색 결과 없음.</div>`;return;}
+  P.innerHTML=`<div class="listhd">검색 “${esc(curQuery)}” · ${list.length}건</div><div class="olist">`
+    +list.map(o=>_ordCard(o,true)).join("")+`</div>`;
+  P.querySelectorAll(".ocard[data-mst]").forEach(c=>c.onclick=()=>selectOrd(c.dataset.mst));
 }
 
 function flash(el){if(!el)return;el.classList.remove("flash");void el.offsetWidth;
@@ -846,12 +936,20 @@ async function selectOrd(mst){
      <a class="btn" style="margin-left:8px;text-decoration:none" target="_blank"
         href="${ordReportHref(mst)}">📄 분석 권고서(인쇄용)</a>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
-     <div class="dsplit">
+     <div class="mtabs"><button data-t="body" class="on">📄 조례 본문</button><button data-t="rec">🔧 검토 사항</button></div>
+     <div class="dsplit show-body">
        <div class="dbody"><div class="dcolhd">📄 조례 본문 — 인용 클릭 시 우측에 정보 · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례</span></div>${left}</div>
        <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div><div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
   document.getElementById("layout").classList.add("detail-open");
+  // 모바일 탭: 본문/검토 전환(데스크톱은 CSS로 탭 숨김·양쪽 표시)
+  dp.querySelectorAll(".mtabs button").forEach(b=>b.onclick=()=>{
+    const ds=dp.querySelector(".dsplit");
+    ds.classList.remove("show-body","show-rec");
+    ds.classList.add(b.dataset.t==="body"?"show-body":"show-rec");
+    dp.querySelectorAll(".mtabs button").forEach(x=>x.classList.toggle("on",x===b));
+  });
   wireFocus(dp);
 }
 function wireFocus(dp){
@@ -966,7 +1064,7 @@ async function goHome(){
   curDept=""; curQuery=""; _ALLORDS=null;
   closeDetail();
   try{OV=await getJSON("/api/overview");}catch(e){}
-  renderBanner(); renderCards(); renderChanges();
+  renderBanner(); renderHero(); renderChanges();
   renderCrumb(); renderDeptTable();
 }
 async function refresh(){
@@ -981,7 +1079,7 @@ async function init(){
   GO.push(...OV.grade_order); Object.assign(GM,OV.grade_meta);
   OV.depts.forEach((d,i)=>DEPTIDX[d.dept]=i);     // 정적 과별 리포트 파일 인덱스
   if(STATIC){const al=document.getElementById("adminLink"); if(al)al.style.display="none";}
-  renderBanner(); renderCards(); fillDeptSelect(); renderChanges();
+  renderBanner(); renderHero(); fillDeptSelect(); renderChanges();
   document.getElementById("deptSel").onchange=e=>selectDept(e.target.value);
   document.getElementById("actChk").onchange=()=>{
     if(curQuery)renderSearch();else if(curDept)renderOrdList();};
