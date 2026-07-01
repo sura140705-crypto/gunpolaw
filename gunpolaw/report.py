@@ -388,7 +388,15 @@ body.report { font-family: "Malgun Gothic","맑은 고딕",system-ui,sans-serif;
 details.citem.cur > summary { opacity:.72; }
 details.citem.cur .law { font-weight:500; }
 /* 접이식 인용 항목(대시보드 우측) — 기본 접힘, 좌측 인용 클릭 시 펼침 */
-details.citem { border-top:1px solid #f3f4f6; padding:0; }
+details.citem { border-top:1px solid #f3f4f6; padding:0; border-left:4px solid transparent; }
+/* 심각도 좌측 색바(4px) — .focus 는 box-shadow 라 색바와 공존 */
+details.citem[data-sev="mechanical"] { border-left-color:var(--mech); }
+details.citem[data-sev="review"] { border-left-color:var(--rev); }
+details.citem[data-sev="check"] { border-left-color:var(--chk); }
+details.citem[data-sev="format"] { border-left-color:var(--fmt); }
+details.citem[data-sev="current"] { border-left-color:#d1d5db; }
+/* 변경없음 숨기기(우측 헤더 체크) — .drec 는 serve.py 컨테이너 */
+.drec.hide-cur details.citem.cur { display:none; }
 details.citem > summary { list-style:none; cursor:pointer; padding:9px 10px 9px 8px;
     display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
 details.citem > summary::-webkit-details-marker { display:none; }
@@ -425,7 +433,7 @@ mark.cite-local { background:#f1f5f9; color:#475569;
 .drow + .drow { border-top:1px solid #f1f3f5; }
 .dlabel { flex:0 0 34px; font-weight:700; font-size:11px; padding-top:1px; }
 .dlabel.was { color:#b91c1c; } .dlabel.now { color:#15803d; }
-.dtext { flex:1; white-space:pre-wrap; word-break:break-all; color:#374151; line-height:1.5; }
+.dtext { flex:1; white-space:pre-wrap; word-break:keep-all; overflow-wrap:anywhere; color:#374151; line-height:1.5; }
 mark.d { background:#fee2e2; color:#991b1b; text-decoration:line-through;
          border-radius:2px; padding:0 1px; }
 mark.i { background:#dcfce7; color:#166534; border-radius:2px; padding:0 1px; }
@@ -544,7 +552,7 @@ def _item_block(it, collapsible=False):
     if collapsible:
         cls = "item citem cur" if it["grade"] == "current" else "item citem"
         oc = (it.get("ord_clause") or "").split(",")[0].strip()
-        return (f'<details class="{cls}" data-oc="{_esc(oc)}"'
+        return (f'<details class="{cls}" data-sev="{it["grade"]}" data-oc="{_esc(oc)}"'
                 f' data-law="{_esc(it["law_name"])}"'
                 f' data-clause="{_esc(it["clause_label"])}">'
                 f'<summary class="iline">{head}</summary>{body}</details>')

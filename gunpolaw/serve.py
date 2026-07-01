@@ -219,7 +219,7 @@ def _highlight_article(no, body, cites):
         else:
             cls = "cite-law"
         out.append(
-            f'<mark class="{cls}" data-oc="{_esc(no)}" data-law="{_esc(c["law_name"])}"'
+            f'<mark class="{cls}" tabindex="0" data-oc="{_esc(no)}" data-law="{_esc(c["law_name"])}"'
             f' data-clause="{_esc(c["clause_label"])}">{_esc(text[s:e])}</mark>')
         pos = e
     out.append(_esc(text[pos:]))
@@ -538,6 +538,8 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .dbody{padding:12px 16px;border-right:1px solid #eef0f3;max-height:76vh;overflow:auto;}
 .drec{padding:6px 14px;max-height:76vh;overflow:auto;}
 .dcolhd{font-size:12px;color:#6b7280;font-weight:600;margin:2px 0 8px;}
+.dcolhd .curtoggle{float:right;font-weight:400;font-size:11.5px;cursor:pointer;
+  display:inline-flex;gap:4px;align-items:center;}
 .art{margin:0 0 10px;scroll-margin-top:8px;border:1px solid #eef0f3;border-radius:9px;
      padding:9px 13px;background:#fff;}
 .art.cited{border-left:3px solid #2563eb;}
@@ -547,8 +549,9 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .art.nocite .ahd{color:#9ca3af;}
 .art .ahd .ct{font-size:10.5px;font-weight:600;background:#dbeafe;color:#1e40af;
               border-radius:999px;padding:1px 8px;}
-.art .atext{font-size:13px;line-height:1.95;white-space:pre-wrap;color:#1f2937;
-            word-break:break-word;}
+.art .atext{font-size:13px;line-height:1.8;white-space:pre-wrap;color:#1f2937;
+            word-break:keep-all;overflow-wrap:anywhere;}
+.dbody mark:focus-visible{outline:2px solid #f59e0b;outline-offset:1px;}
 mark.cite-law{background:#dbeafe;color:#1e3a8a;border-radius:3px;padding:0 2px;cursor:pointer;
               transition:background .15s;}
 mark.cite-law:hover{background:#bfdbfe;}
@@ -914,10 +917,12 @@ async function selectOrd(mst){
      <div class="mtabs"><button data-t="body" class="on">📄 조례 본문</button><button data-t="rec">🔧 검토 사항</button></div>
      <div class="dsplit show-body">
        <div class="dbody"><div class="dcolhd">📄 조례 본문 — 인용 클릭 시 우측에 정보 · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례</span></div>${left}</div>
-       <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침</div><div id="localref"></div>${right}</div>
+       <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침<label class="curtoggle"><input type="checkbox" id="hideCurChk"> 변경없음 숨기기</label></div><div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
   document.getElementById("layout").classList.add("detail-open");
+  const hc=dp.querySelector("#hideCurChk");   // 변경없음(현행) 항목 접기
+  if(hc)hc.onchange=e=>dp.querySelector(".drec").classList.toggle("hide-cur",e.target.checked);
   // 모바일 탭: 본문/검토 전환(데스크톱은 CSS로 탭 숨김·양쪽 표시)
   dp.querySelectorAll(".mtabs button").forEach(b=>b.onclick=()=>{
     const ds=dp.querySelector(".dsplit");
@@ -932,8 +937,16 @@ function wireFocus(dp){
   const citem=(oc,law,cl)=>dp.querySelector(
     `.drec .citem[data-oc="${cssq(oc||"")}"][data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`)
     || dp.querySelector(`.drec .citem[data-law="${cssq(law)}"][data-clause="${cssq(cl||"")}"]`);
+  // 모바일: 인용 클릭 시 검토 탭 자동 노출(좌 본문에선 우 검토가 숨겨져 있으므로)
+  const showRec=()=>{
+    if(!window.matchMedia("(max-width:760px)").matches)return;
+    const ds=dp.querySelector(".dsplit");
+    ds.classList.remove("show-body"); ds.classList.add("show-rec");
+    dp.querySelectorAll(".mtabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="rec"));
+  };
   // 좌 인용 클릭 → 우 해당 검토항목 펼침 + 강조
   dp.querySelectorAll(".dbody mark[data-law]").forEach(mk=>mk.onclick=()=>{
+    showRec();
     if(mk.classList.contains("cite-local")){showLocalRef(mk.dataset.law);return;}
     // 상위법령 인용 → 우측에 법령 정보 카드(항상) + 검토항목 있으면 펼침/강조
     showLawRef(mk.dataset.law);
