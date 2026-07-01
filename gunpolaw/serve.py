@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs, quote
 
 from . import db
 from .parse import parse_ordinance_body
-from .extract import normalize_text
+from .extract import normalize_text, is_local_admrul
 from .report import (GRADE_KEYS, GRADE_META, finding_grade, recommend_fragment,
                      build_model, render_html, model_to_csv)
 
@@ -198,7 +198,9 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
             continue
         key = c["law_name"].replace(" ", "")
         d = law_refs.setdefault(key, {"name": c["law_name"], "law_id": c["law_id"] or "",
-                                      "clauses": [], "counts": {}})
+                                      "clauses": [], "counts": {},
+                                      # 지자체 자체 행정규칙(국가법령정보 미수록) — 자치법규 포털로 링크
+                                      "local_admrul": is_local_admrul(c["law_name"])})
         if not d["law_id"] and c["law_id"]:
             d["law_id"] = c["law_id"]
         cl = (c["clause_label"] or "").strip()
@@ -799,11 +801,13 @@ function showLawRef(name){
   const box=document.getElementById("localref"); if(!box)return;
   const ref=LAWREFS[String(name||"").replace(/\s/g,"")];
   const law=ref?ref.name:name;
-  // 행정규칙(law_id=ADM:…)은 법령과 별개 저장소 — 태그·포털 경로를 구분
+  // 세 갈래: 지자체 자체 행정규칙(API 미수록) / 중앙 행정규칙(ADM:) / 상위법령 — 태그·포털 구분
+  const isLocalAdm=ref&&ref.local_admrul;
   const isAdm=ref&&String(ref.law_id||"").indexOf("ADM:")===0;
-  const kindTag=isAdm?'행정규칙':'상위법령';
+  const kindTag=isLocalAdm?'지자체 행정규칙':isAdm?'행정규칙':'상위법령';
   const idLabel=isAdm?"행정규칙ID "+esc(String(ref.law_id).slice(4)):"법령ID "+esc(ref?ref.law_id:"");
-  const portal=isAdm?`https://www.law.go.kr/행정규칙/${encodeURIComponent(law)}`
+  const portal=isLocalAdm?`https://www.law.go.kr/자치법규/${encodeURIComponent(law)}`
+    :isAdm?`https://www.law.go.kr/행정규칙/${encodeURIComponent(law)}`
     :`https://www.law.go.kr/법령/${encodeURIComponent(law)}`;
   const SEV={mechanical:["기계적","#1d4ed8"],review:["검토","#b45309"],
     check:["확인","#52525b"],format:["서식","#6d28d9"],current:["변경없음","#15803d"]};
@@ -814,7 +818,8 @@ function showLawRef(name){
     const sum=Object.entries(ref.counts||{}).filter(([,n])=>n)
       .map(([g,n])=>`<span class="rsum" style="color:${(SEV[g]||['',''])[1]}">${(SEV[g]||[g])[0]} ${n}</span>`).join(" · ")
       ||'<span class="muted">판정 항목 없음(근거 인용)</span>';
-    const idNote=isAdm?" · 시점 개정이력 없음(존재·현행 확인)":"";
+    const idNote=isLocalAdm?" · 지자체 자체 행정규칙(국가법령정보 미수록) — 포털 검색으로 원문 확인"
+      :isAdm?" · 시점 개정이력 없음(존재·현행 확인)":"";
     body=`<div class="m">인용 조문: ${cls||'<span class="muted">법명만 인용</span>'}</div>
        <div class="m">판정: ${sum}${ref.law_id?` · <span class="muted">${idLabel}</span>`:""}${idNote}</div>`;
   }else{
