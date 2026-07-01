@@ -614,10 +614,10 @@ a.lname:hover{text-decoration:underline;}
   <div class="cards" id="cards"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
+    <span class="crumb" id="crumb"></span>
     <input type="search" id="searchBox" placeholder="🔍 조례명·인용 법령 검색" autocomplete="off">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
     <label><input type="checkbox" id="actChk"> 정비 대상만</label>
-    <span class="crumb" id="crumb"></span>
   </div>
   <div class="layout" id="layout">
     <div class="panel" id="listPanel"></div>
