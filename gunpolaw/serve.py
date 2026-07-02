@@ -149,7 +149,8 @@ def overview(db_path=db.DEFAULT_DB):
         "batch": (dict(meta) if meta else {}),
         "grades": grades,
         "grade_meta": {k: {"emoji": GRADE_META[k]["emoji"],
-                           "label": GRADE_META[k]["label"]} for k in GRADE_KEYS},
+                           "label": GRADE_META[k]["label"],
+                           "desc": GRADE_META[k].get("desc", "")} for k in GRADE_KEYS},
         "grade_order": list(GRADE_KEYS),
         "totals": {"ordinances": len(ords),
                    "action": sum(1 for o in ords if o["items_count"] > 0),
@@ -196,11 +197,22 @@ def _esc(s):
     return html.escape(str(s or ""))
 
 
-def _highlight_article(no, body, cites):
+def _cite_actionable(article_no, cite, actionable):
+    """이 인용이 정비 대상인가. 인용의 clause_label 은 '제148조,제149조'처럼 여러 조를
+    합쳐 오지만 findings 는 조 단위(제148조/제149조 각각)라, 콤마로 쪼개 하나라도
+    정비 대상 집합에 있으면 강조 대상으로 본다(조라벨 단위 불일치 방어)."""
+    law = cite.get("law_name") or ""
+    parts = [p.strip() for p in (cite.get("clause_label") or "").split(",")] or [""]
+    return any((article_no, law, p) in actionable for p in parts)
+
+
+def _highlight_article(no, body, cites, actionable=None):
     """조례 조문 본문(정규화)에 인용 span을 <mark>로 감싼 HTML.
 
     span은 normalize_text(조문본문) 기준 offset이므로 같은 정규화 텍스트에 적용한다.
     겹치거나 범위를 벗어난 span은 건너뛴다(안전).
+    actionable(set) 지정 시 그 안의 (조문, 법령, 조라벨) 인용만 강조 — 정비 대상만
+    본문에 색칠해 가독성을 높인다(현행 유지·타 조례 인용은 평문). None이면 전부 강조.
     """
     text = normalize_text(body)
     spans = sorted((c for c in cites),
@@ -210,6 +222,8 @@ def _highlight_article(no, body, cites):
         s, e = c["span_start"] or 0, c["span_end"] or 0
         if s < pos or e > n or s >= e:      # 겹침/이상치 방어
             continue
+        if actionable is not None and not _cite_actionable(no, c, actionable):
+            continue                         # 정비 대상 아님 → 평문(나중 tail에 포함)
         out.append(_esc(text[pos:s]))
         # 타 조례(자치법규)는 상위법령 정합성 검토 대상이 아니라 회색으로 구분(우측 검토에 없음)
         if c.get("cite_type") == "자치법규":
@@ -268,12 +282,20 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
         cl = (c["clause_label"] or "").strip()
         if cl and cl not in d["clauses"]:
             d["clauses"].append(cl)
+    # 정비 대상(판정 등급 current 아님) 인용 키 집합 — 좌측 본문은 이것만 강조.
+    # 키 = (조례조문, 법령명, 상위법 조라벨) — mark·검토항목과 동일 매칭축.
+    actionable = set()
     for fr in conn.execute(
-            "SELECT law_name, severity, change_type FROM findings WHERE mst=?", (str(mst),)):
+            """SELECT law_name, severity, change_type, clause_label, ord_clause,
+                      cite_naked, cite_spacing FROM findings WHERE mst=?""", (str(mst),)):
+        g = finding_grade(fr["severity"], fr["change_type"],
+                          fr["cite_naked"] or 0, fr["cite_spacing"] or 0)
         key = (fr["law_name"] or "").replace(" ", "")
         if key in law_refs:
-            g = finding_grade(fr["severity"], fr["change_type"])
             law_refs[key]["counts"][g] = law_refs[key]["counts"].get(g, 0) + 1
+        if g != "current":
+            oc = (fr["ord_clause"] or "").split(",")[0].strip()
+            actionable.add((oc, fr["law_name"] or "", fr["clause_label"] or ""))
     conn.close()
 
     by_art = {}
@@ -289,15 +311,25 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
                     continue
                 no = a.get("no") or ""
                 ac = by_art.get(no, [])
+                act = sum(1 for c in ac if _cite_actionable(no, c, actionable))
                 articles.append({
                     "no": no, "title": a.get("title", ""),
-                    "html": _highlight_article(no, a["body"], ac),
-                    "cites": len(ac),
+                    "html": _highlight_article(no, a["body"], ac, actionable),
+                    "cites": len(ac), "act": act,
                 })
+
+    # 이 조례의 특징 — 인용 구성(상위법령/행정규칙/타조례 대상 수)
+    n_law = n_adm = 0
+    for d in law_refs.values():
+        if str(d.get("law_id") or "").startswith("ADM:") or d.get("local_admrul"):
+            n_adm += 1
+        else:
+            n_law += 1
+    features = {"law": n_law, "admrul": n_adm, "local": len(local_refs)}
 
     meta = {k: o[k] for k in o.keys() if k != "body_xml"} if o else {}
     return {"meta": meta, "articles": articles, "local_refs": local_refs,
-            "law_refs": law_refs,
+            "law_refs": law_refs, "features": features,
             "recommend": recommend_fragment(mst, db_path, collapsible=True)}
 
 
@@ -494,9 +526,12 @@ td .lawhit{display:block;font-size:11.5px;color:#2563eb;margin-top:2px;}
   border:1px solid #bfdbfe;color:#1e40af;font-weight:700;cursor:pointer;line-height:1;
   display:inline-flex;align-items:center;}
 .backbtn:hover{background:#dbeafe;border-color:#93c5fd;}
-/* 고정 첫페이지 버튼 — 항상 보이는 앵커라 솔리드로 또렷하게 */
-.homebtn{background:#1e40af;color:#fff;border-color:#1e40af;}
-.homebtn:hover{background:#1e3a8a;border-color:#1e3a8a;}
+/* ← 뒤로: 한 단계 상위 화면으로(주 동작이라 솔리드로 또렷하게) */
+.backbtn.upbtn{background:#1e40af;color:#fff;border-color:#1e40af;}
+.backbtn.upbtn:hover{background:#1e3a8a;border-color:#1e3a8a;}
+/* 🏠 첫페이지: 홈 앵커(보조 동작이라 아웃라인) */
+.homebtn{background:#fff;color:#1e40af;border-color:#bfdbfe;}
+.homebtn:hover{background:#eff6ff;border-color:#93c5fd;}
 .controls .crumb .crumb-cur{color:#374151;font-size:14px;}
 .controls .crumb .crumb-link{font-size:12.5px;}
 .layout{display:grid;grid-template-columns:1fr;gap:16px;}
@@ -526,6 +561,16 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .detail .dhd{padding:14px 16px;border-bottom:1px solid #eef0f3;}
 .detail .dhd h2{font-size:16px;margin:0 0 3px;}
 .detail .dhd .m{font-size:12px;color:#6b7280;}
+.detail .dfeat{margin-top:10px;display:flex;flex-direction:column;gap:5px;}
+.dfeat .frow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.dfeat .flabel{font-size:11px;font-weight:700;color:#6b7280;min-width:52px;}
+.dfeat .fchip,.dfeat .gchip{font-size:11.5px;padding:2px 9px;border-radius:999px;
+  background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;white-space:nowrap;}
+.dfeat .gchip.g-review{background:#fef3e2;color:#b45309;border-color:#fcd9a8;}
+.dfeat .gchip.g-mechanical{background:#e7edff;color:#1d4ed8;border-color:#c7d6fe;}
+.dfeat .gchip.g-format{background:#f3ecff;color:#6d28d9;border-color:#ddd0fb;}
+.dfeat .gchip.g-check{background:#f1f1f4;color:#52525b;border-color:#dedee3;}
+.dfeat .gchip.g-current{background:#e9f7ee;color:#15803d;border-color:#c3ebd0;}
 .detail .body{padding:8px 14px 18px;}
 .empty{padding:40px 16px;color:#9ca3af;text-align:center;font-size:14px;}
 .btn{font-size:12px;padding:4px 10px;border:1px solid #d1d5db;border-radius:7px;
@@ -538,8 +583,13 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .dbody{padding:12px 16px;border-right:1px solid #eef0f3;max-height:76vh;overflow:auto;}
 .drec{padding:6px 14px;max-height:76vh;overflow:auto;}
 .dcolhd{font-size:12px;color:#6b7280;font-weight:600;margin:2px 0 8px;}
-.dcolhd .curtoggle{float:right;font-weight:400;font-size:11.5px;cursor:pointer;
-  display:inline-flex;gap:4px;align-items:center;}
+.drec .curbtn{margin:0 0 10px;width:100%;font-size:12.5px;padding:8px 12px;
+  border:1px dashed #cbd5e1;border-radius:9px;background:#f8fafc;color:#475569;
+  cursor:pointer;font-weight:600;transition:background .15s,border-color .15s;}
+.drec .curbtn:hover{background:#f1f5f9;border-color:#94a3b8;}
+.drec .curbtn.open{border-style:solid;background:#eef2ff;color:#3730a3;border-color:#c7d2fe;}
+.drec .diffbtn{border-style:solid;border-color:#e2e8f0;background:#fff;}
+.drec .diffbtn:hover{background:#f1f5f9;border-color:#94a3b8;}
 .art{margin:0 0 10px;scroll-margin-top:8px;border:1px solid #eef0f3;border-radius:9px;
      padding:9px 13px;background:#fff;}
 .art.cited{border-left:3px solid #2563eb;}
@@ -617,20 +667,51 @@ a.lname:hover{text-decoration:underline;}
 .changes .ackb.done:hover{background:#dcfce7;}
 .changes .ackb:disabled{opacity:.5;cursor:default;}
 
-/* ============ 요약 우선형 히어로 ============ */
-.hero{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px 20px;margin:0 0 16px;}
-.hero-top{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;}
-.hero-num{font-size:44px;font-weight:800;line-height:.95;color:#b45309;}
-.hero-num small{font-size:20px;font-weight:700;margin-left:3px;}
-.hero-sub{font-size:14px;color:#6b7280;padding-bottom:5px;}
-.hero-sub b{color:#374151;}
-.hero-bar{height:12px;border-radius:99px;background:#f1f3f5;overflow:hidden;margin:12px 0 4px;}
-.hero-bar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:99px;}
-.hero-grades{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
-.gchip{font-size:13px;font-weight:700;padding:6px 12px;border-radius:99px;border:1px solid;background:#fff;white-space:nowrap;}
-.gchip.g-mech{color:var(--mech);border-color:#bfdbfe;} .gchip.g-rev{color:var(--rev);border-color:#fde68a;}
-.gchip.g-chk{color:var(--chk);border-color:#e5e7eb;} .gchip.g-fmt{color:var(--fmt);border-color:#ddd6fe;}
-.gchip.g-cur{color:var(--cur);border-color:#bbf7d0;}
+/* ============ 상단 헤더 밴드(그라데이션) ============ */
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+  background:linear-gradient(120deg,#13325b 0%,#1d4e89 60%,#2563eb 130%);color:#fff;
+  border-radius:16px;padding:20px 24px;margin:0 0 16px;
+  box-shadow:0 10px 26px rgba(19,50,91,.20);}
+.topbar h1{font-size:22px;margin:0 0 6px;color:#fff;letter-spacing:-.3px;}
+.topbar-meta{font-size:12.5px;color:#c9d8ee;line-height:1.6;}
+.topbar-meta b{color:#fff;}
+.topbar-meta .muted{color:#9fb3d1;}
+.topbar-admin{font-size:12.5px;color:#e8f0fb;text-decoration:none;white-space:nowrap;
+  background:rgba(255,255,255,.14);padding:7px 13px;border-radius:9px;border:1px solid rgba(255,255,255,.14);}
+.topbar-admin:hover{background:rgba(255,255,255,.26);}
+
+/* ============ KPI 카드 그리드 ============ */
+.kpis{display:grid;grid-template-columns:1.7fr 3.6fr;gap:12px;margin:0 0 18px;align-items:stretch;}
+.kpi-grades{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:12px;}
+.kpi{background:#fff;border:1px solid #e8ebef;border-radius:14px;padding:15px 16px;
+  position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.05);
+  transition:box-shadow .15s,transform .15s;}
+.kpi:hover{box-shadow:0 6px 18px rgba(16,24,40,.09);transform:translateY(-1px);}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#e5e7eb;}
+.kpi .kpi-ic{font-size:17px;line-height:1;}
+.kpi .kpi-n{font-size:27px;font-weight:800;color:#111827;line-height:1;margin-top:8px;
+  font-variant-numeric:tabular-nums;}
+.kpi .kpi-n small{font-size:14px;font-weight:700;color:#6b7280;margin-left:2px;}
+.kpi .kpi-l{font-size:12px;color:#374151;font-weight:700;margin-top:6px;}
+.kpi .kpi-d{font-size:11px;color:#9ca3af;margin-top:3px;line-height:1.35;word-break:keep-all;}
+.kpi.k-mech::before{background:var(--mech);} .kpi.k-mech .kpi-n{color:var(--mech);}
+.kpi.k-rev::before{background:var(--rev);}   .kpi.k-rev .kpi-n{color:var(--rev);}
+.kpi.k-chk::before{background:var(--chk);}    .kpi.k-chk .kpi-n{color:var(--chk);}
+.kpi.k-fmt::before{background:var(--fmt);}    .kpi.k-fmt .kpi-n{color:var(--fmt);}
+.kpi.k-cur::before{background:var(--cur);}    .kpi.k-cur .kpi-n{color:var(--cur);}
+/* 주 KPI(정비 필요 조례) — 강조 */
+.kpi.primary{background:linear-gradient(135deg,#fff 55%,#fff7ed);border-color:#fcd9a8;}
+.kpi.primary::before{background:linear-gradient(#f59e0b,#d97706);width:5px;}
+.kpi.primary .kpi-l{font-size:12.5px;color:#92400e;}
+.kpi.primary .kpi-n{font-size:44px;color:#b45309;margin-top:4px;}
+.kpi.primary .kpi-sub{font-size:12.5px;color:#78716c;margin-top:6px;}
+.kpi.primary .kpi-sub b{color:#b45309;}
+.hero-bar{height:9px;border-radius:99px;background:#fde7d0;overflow:hidden;margin:10px 0 2px;}
+.hero-bar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:99px;
+  transition:width .5s ease;}
+@media(max-width:920px){.kpis{grid-template-columns:1fr;}}
+@media(max-width:520px){.topbar{flex-direction:column;}
+  .kpi .kpi-n{font-size:23px;} .kpi.primary .kpi-n{font-size:38px;}}
 
 /* ============ 소관업무 편 카드(아코디언) ============ */
 .plist{display:flex;flex-direction:column;gap:10px;}
@@ -689,12 +770,17 @@ a.lname:hover{text-decoration:underline;}
 @media (min-width:761px){ .mtabs{display:none;} }
 </style></head>
 <body><div class="wrap">
-  <h1>자치법규 정비 — 총괄 대시보드
-    <a href="/admin" id="adminLink" style="float:right;font-size:13px;font-weight:400;color:#6b7280;text-decoration:none">🔧 판정 근거 검사</a></h1>
-  <div class="banner" id="banner">불러오는 중…</div>
-  <div class="hero" id="hero"></div>
+  <header class="topbar">
+    <div>
+      <h1>자치법규 정비 총괄 대시보드</h1>
+      <div class="topbar-meta" id="banner">불러오는 중…</div>
+    </div>
+    <a href="/admin" id="adminLink" class="topbar-admin">🔧 판정 근거 검사</a>
+  </header>
+  <div class="kpis" id="hero"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
+    <button class="backbtn upbtn" id="backBtn" onclick="goBack()" style="display:none" title="바로 전 화면으로">← 뒤로</button>
     <button class="backbtn homebtn" id="homeBtn" onclick="goHome()" title="첫페이지로 · 데이터 새로고침">🏠 첫페이지</button>
     <input type="search" id="searchBox" placeholder="🔍 조례명·인용 법령 검색" autocomplete="off">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
@@ -756,17 +842,25 @@ async function fetchOrds(opts){     // 조례 목록(라이브=서버 필터 / �
 }
 
 function gcls(k){return k==="mechanical"?"mech":k==="review"?"rev":k==="check"?"chk":k==="format"?"fmt":"cur";}
+function nf(n){return Number(n||0).toLocaleString();}
 function renderHero(){
   const g=OV.grades, t=OV.totals;
   const pct=t.ordinances?Math.round(t.action/t.ordinances*100):0;
-  let chips="";
-  for(const k of GO){ if(!g[k])continue; const m=GM[k];
-    chips+=`<span class="gchip g-${gcls(k)}">${m.emoji} ${esc(m.label)} ${g[k]}</span>`; }
+  // 주 KPI: 정비 필요 조례(건) + 진행바
+  const primary=`<div class="kpi primary">
+     <div class="kpi-l">🛠 정비 필요 조례</div>
+     <div class="kpi-n">${nf(t.action)}<small>건</small></div>
+     <div class="kpi-sub">전체 <b>${nf(t.ordinances)}</b>건 중 <b>${pct}%</b></div>
+     <div class="hero-bar"><i style="width:${pct}%"></i></div></div>`;
+  // 등급별 KPI 카드(판정 건수) — 0건 등급은 숨김(항상 0인 지표 제외). 색은 좌측 액센트 바.
+  const cards=GO.filter(k=>g[k]).map(k=>{const m=GM[k];
+    return `<div class="kpi k-${gcls(k)}" title="${esc(m.desc||"")}">
+       <div class="kpi-ic">${m.emoji}</div>
+       <div class="kpi-n">${nf(g[k])}</div>
+       <div class="kpi-l">${esc(m.label)}</div>
+       ${m.desc?`<div class="kpi-d">${esc(m.desc)}</div>`:""}</div>`;}).join("");
   document.getElementById("hero").innerHTML=
-    `<div class="hero-top"><div class="hero-num">${t.action}<small>건</small></div>
-       <div class="hero-sub">정비 필요 조례 · 전체 <b>${t.ordinances}</b>건 중 ${pct}%</div></div>
-     <div class="hero-bar"><i style="width:${pct}%"></i></div>
-     <div class="hero-grades">${chips}</div>`;
+    primary+`<div class="kpi-grades">${cards}</div>`;
 }
 function togglePyeon(card){
   const open=card.classList.toggle("open");
@@ -902,9 +996,28 @@ async function selectOrd(mst){
     s.textContent=r.css;document.head.appendChild(s);cssInjected=true;}
   const meta=`시행 ${fdate(m.enforce_date)} · 담당 ${esc(m.dept||"—")}`
     +(m.phone?` · ☎ ${esc(m.phone)}`:"");
-  // 좌: 본문(조문별, 인용 하이라이트)
-  const left=arts.length?arts.map(a=>`<div class="art ${a.cites?'cited':'nocite'}" data-oc="${esc(a.no)}">
-      <div class="ahd">${esc(a.no)}${a.title?" ("+esc(a.title)+")":""}${a.cites?`<span class="ct">인용 ${a.cites}</span>`:""}</div>
+  // 좌=현황(인용 구성), 우=상세(정비 상태 + 검토 내역). 현황은 본문 위, 정비상태는 검토 위.
+  const F=d.features||{}, gr=r.grades||{};   // GM(등급 라벨)은 전역 — 단일 출처(overview)
+  const comp=[];
+  if(F.law)comp.push(`<span class="fchip">⚖ 상위법령 ${F.law}</span>`);
+  if(F.admrul)comp.push(`<span class="fchip">📕 행정규칙 ${F.admrul}</span>`);
+  if(F.local)comp.push(`<span class="fchip">🏛 타조례 ${F.local}</span>`);
+  const compBar=comp.length?`<div class="dfeat"><div class="frow"><span class="flabel">인용 구성</span>${comp.join("")}</div></div>`:"";
+  // 정비 상태(우측) — 정비 대상 등급만. 현행(변경없음)은 아래 '제외 대상' 버튼이 대신 안내.
+  const gcs=["mechanical","review","check","format"].filter(k=>gr[k])
+    .map(k=>`<span class="gchip g-${k}">${GM[k].emoji} ${esc(GM[k].label)} ${gr[k]}</span>`);
+  const gradeBar=gcs.length
+    ?`<div class="dfeat"><div class="frow"><span class="flabel">정비 상태</span>${gcs.join("")}</div></div>`
+    :`<div class="dfeat"><div class="frow"><span class="gchip g-current">✅ 정비 대상 없음 — 인용 전부 현행</span></div></div>`;
+  // 제외 대상(현행·변경 없음) — 기본 숨김, 버튼으로 펼침
+  const curN=gr.current||0;
+  const curBtn=curN?`<button id="showCurBtn" class="curbtn">＋ 제외 대상(변경 없음) ${curN}건 보기</button>`:"";
+  // 개정 내용 diff 보기 방식 토글 — 기본 통합(합쳐), 클릭 시 당시·현행 나란히. 변경 내용이 있을 때만.
+  const hasDiff=(gr.review||0)+(gr.mechanical||0)>0;
+  const diffBtn=hasDiff?`<button id="diffModeBtn" class="curbtn diffbtn">▤ 당시·현행 나란히 보기</button>`:"";
+  // 좌: 본문(조문별) — 정비 대상 인용만 강조. 배지·강조 테두리는 정비건수(act) 기준.
+  const left=arts.length?arts.map(a=>`<div class="art ${a.act?'cited':'nocite'}" data-oc="${esc(a.no)}">
+      <div class="ahd">${esc(a.no)}${a.title?" ("+esc(a.title)+")":""}${a.act?`<span class="ct">정비 ${a.act}</span>`:""}</div>
       <div class="atext">${a.html}</div></div>`).join("")
     :`<div class="empty">본문이 없습니다(body_xml 미적재 — 재배치 필요).</div>`;
   // 우: 권고(report 조각)
@@ -916,13 +1029,27 @@ async function selectOrd(mst){
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="mtabs"><button data-t="body" class="on">📄 조례 본문</button><button data-t="rec">🔧 검토 사항</button></div>
      <div class="dsplit show-body">
-       <div class="dbody"><div class="dcolhd">📄 조례 본문 — 인용 클릭 시 우측에 정보 · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6">맨몸</span> / <span style="color:#64748b">타 조례</span></div>${left}</div>
-       <div class="drec"><div class="dcolhd">🔧 검토 사항 — 조례 조문별 · 좌측 인용 클릭 시 펼침<label class="curtoggle"><input type="checkbox" id="hideCurChk"> 변경없음 숨기기</label></div><div id="localref"></div>${right}</div>
+       <div class="dbody"><div class="dcolhd">📄 조례 본문(현황) — 정비 대상 인용만 강조(클릭 시 우측 검토) · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6" title="낫표 「」 없이 쓴 상위법령 인용 — 서식 정비 대상">「」 누락</span></div>${compBar}${left}</div>
+       <div class="drec hide-cur"><div class="dcolhd">🔧 검토 사항(상세) — 조례 조문별 · 좌측 인용 클릭 시 펼침</div>${gradeBar}${diffBtn}${curBtn}<div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
   document.getElementById("layout").classList.add("detail-open");
-  const hc=dp.querySelector("#hideCurChk");   // 변경없음(현행) 항목 접기
-  if(hc)hc.onchange=e=>dp.querySelector(".drec").classList.toggle("hide-cur",e.target.checked);
+  renderBackBtn();                 // 상세 진입 → back 버튼을 '← 목록'으로
+  // 제외 대상(변경 없음·현행) — 기본 숨김. 버튼으로 펼치고 라벨 전환.
+  const showCur=dp.querySelector("#showCurBtn");
+  if(showCur)showCur.onclick=()=>{
+    const drec=dp.querySelector(".drec");
+    const hidden=drec.classList.toggle("hide-cur");
+    showCur.textContent=hidden?`＋ 제외 대상(변경 없음) ${curN}건 보기`:`－ 제외 대상 숨기기`;
+    showCur.classList.toggle("open",!hidden);
+  };
+  // diff 보기 방식: 기본 통합(합쳐) ↔ 당시·현행 나란히
+  const diffMode=dp.querySelector("#diffModeBtn");
+  if(diffMode)diffMode.onclick=()=>{
+    const split=dp.querySelector(".drec").classList.toggle("diff-mode-split");
+    diffMode.textContent=split?"◱ 변경 내용 합쳐 보기":"▤ 당시·현행 나란히 보기";
+    diffMode.classList.toggle("open",split);
+  };
   // 모바일 탭: 본문/검토 전환(데스크톱은 CSS로 탭 숨김·양쪽 표시)
   dp.querySelectorAll(".mtabs button").forEach(b=>b.onclick=()=>{
     const ds=dp.querySelector(".dsplit");
@@ -1000,7 +1127,7 @@ function showLawRef(name){
   const portal=isLocalAdm?`https://www.law.go.kr/자치법규/${encodeURIComponent(law)}`
     :isAdm?`https://www.law.go.kr/행정규칙/${encodeURIComponent(law)}`
     :`https://www.law.go.kr/법령/${encodeURIComponent(law)}`;
-  const SEV={mechanical:["기계적","#1d4ed8"],review:["검토","#b45309"],
+  const SEV={mechanical:["번호정정","#1d4ed8"],review:["검토","#b45309"],
     check:["확인","#52525b"],format:["서식","#6d28d9"],current:["변경없음","#15803d"]};
   let body="";
   if(ref){
@@ -1024,7 +1151,24 @@ function showLawRef(name){
 }
 function closeDetail(){curMst="";
   document.getElementById("detailPanel").style.display="none";
-  document.getElementById("layout").classList.remove("detail-open");}
+  document.getElementById("layout").classList.remove("detail-open");
+  renderBackBtn();}
+
+function renderBackBtn(){
+  // 컨텍스트 back — 한 단계 상위로. 홈이면 숨김(더 갈 곳 없음).
+  const b=document.getElementById("backBtn"); if(!b)return;
+  if(curMst){b.style.display="";b.textContent="← 목록";}
+  else if(curDept||curQuery){b.style.display="";b.textContent="← 첫페이지";}
+  else{b.style.display="none";}
+}
+function goBack(){
+  if(curMst){closeDetail();return;}          // 상세 → 목록
+  // 목록(과/검색) → 첫페이지
+  const sb=document.getElementById("searchBox"); if(sb)sb.value="";
+  const ds=document.getElementById("deptSel"); if(ds)ds.value="";
+  curDept=""; curQuery=""; closeDetail();
+  renderCrumb(); renderDeptTable();
+}
 
 function selectDept(dept){
   curDept=dept;
@@ -1036,7 +1180,7 @@ function clearSearch(){
   document.getElementById("searchBox").value=""; curQuery=""; refresh();
 }
 function renderCrumb(){
-  // 뒤로가기/새로고침은 고정 '🏠 첫페이지' 버튼이 담당 — crumb은 현재 맥락만 표시
+  renderBackBtn();                 // 화면 전환마다 back 버튼 라벨·표시 갱신
   const c=document.getElementById("crumb");
   if(curQuery){c.innerHTML=`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`;return;}
   if(!curDept){c.innerHTML="";return;}

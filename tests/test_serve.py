@@ -196,13 +196,34 @@ def test_highlight_wraps_citation_and_escapes():
     s = text.index(target)
     cites = [{"span_start": s, "span_end": s + len(target), "law_name": "건축법",
               "clause_label": "제2조", "cite_naked": 0}]
-    h = _highlight_article("제2조", body, cites)
-    assert f'<mark class="cite-law" data-oc="제2조" data-law="건축법"' in h, h
+    h = _highlight_article("제2조", body, cites)   # actionable=None → 전부 강조
+    assert '<mark class="cite-law"' in h and 'data-oc="제2조"' in h, h
+    assert 'data-law="건축법"' in h, h
     assert ">「건축법」 제2조</mark>" in h, h
     assert "&lt;b&gt;" in h and "<b>" not in h        # 본문 HTML 이스케이프
     # 맨몸 인용은 cite-naked 클래스
     h2 = _highlight_article("제2조", body, [{**cites[0], "cite_naked": 1}])
     assert 'class="cite-naked"' in h2
+    # actionable 지정 시 그 안의 인용만 강조 — 미포함 인용은 평문
+    h3 = _highlight_article("제2조", body, cites, actionable=set())
+    assert "<mark" not in h3 and "「건축법」 제2조" in h3, h3
+    h4 = _highlight_article("제2조", body, cites,
+                            actionable={("제2조", "건축법", "제2조")})
+    assert '<mark class="cite-law"' in h4, h4
+
+
+def test_highlight_actionable_splits_combined_clause():
+    """인용 clause_label='제148조,제149조'(합침) vs finding '제148조'(조 단위) —
+    콤마 분리 매칭으로 정비 대상이면 강조돼야 한다(조라벨 단위 불일치 회귀)."""
+    body = "제11조 증인은 형사소송법 제148조 또는 제149조에 따라."
+    text = normalize_text(body)
+    t = "형사소송법 제148조 또는 제149조"; s = text.index(t)
+    cites = [{"span_start": s, "span_end": s + len(t), "law_name": "형사소송법",
+              "clause_label": "제148조,제149조", "cite_naked": 1}]
+    # finding 은 제149조 하나만 정비 대상으로 잡혀 있어도 강조돼야 함
+    h = _highlight_article("제11조", body, cites,
+                           actionable={("제11조", "형사소송법", "제149조")})
+    assert 'class="cite-naked"' in h, h
 
 
 def test_highlight_skips_bad_spans():
@@ -230,12 +251,17 @@ def test_detail_articles_present():
     conn.execute("INSERT INTO ordinances(mst,name,enforce_date,body_xml) VALUES('7001','샘플','20100101',?)", (ord_xml,))
     conn.execute("INSERT INTO citations(mst,article_no,law_name,clause_label,span_start,span_end,cite_naked,cite_type)"
                  " VALUES('7001','제2조','건축법','제2조',?,?,0,'법령')", (s, s + len(t)))
+    # 정비 대상(review) finding 이 있어야 좌측 본문에 강조된다(정비 대상만 강조 정책)
+    conn.execute("INSERT INTO findings(mst,law_name,clause_label,ord_clause,severity,change_type,cite_naked,cite_spacing)"
+                 " VALUES('7001','건축법','제2조','제2조','review','내용변경',0,0)")
     conn.commit(); conn.close()
     d = ordinance_detail(path, "7001")
     assert d["articles"], d
     a = d["articles"][0]
-    assert a["no"] == "제2조" and a["cites"] == 1
+    assert a["no"] == "제2조" and a["cites"] == 1 and a["act"] == 1
     assert '<mark class="cite-law"' in a["html"]
+    # 특징 요약: 상위법령 1건 집계
+    assert d["features"]["law"] == 1, d["features"]
     os.unlink(path)
 
 
