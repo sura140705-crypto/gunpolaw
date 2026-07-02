@@ -21,16 +21,21 @@ from datetime import datetime
 
 from . import db
 from .parse import parse_ordinance_body
-from .extract import normalize_text
+from .extract import normalize_text, is_local_admrul
 
 
 # ---------- 등급 도출 ----------
 GRADE_META = {
-    "mechanical": {"order": 0, "emoji": "🔧", "label": "기계적 개정", "cls": "g-mech"},
-    "review":     {"order": 1, "emoji": "⚠️", "label": "실질 검토",   "cls": "g-rev"},
-    "check":      {"order": 2, "emoji": "📋", "label": "확인",         "cls": "g-chk"},
-    "format":     {"order": 3, "emoji": "📐", "label": "서식 정비",     "cls": "g-fmt"},
-    "current":    {"order": 4, "emoji": "✅", "label": "현행 유지",     "cls": "g-cur"},
+    "mechanical": {"order": 0, "emoji": "🔧", "label": "조문번호 정정", "cls": "g-mech",
+                   "desc": "내용 동일·번호만 이동"},
+    "review":     {"order": 1, "emoji": "⚠️", "label": "실질 검토",   "cls": "g-rev",
+                   "desc": "상위법 내용이 바뀜"},
+    "check":      {"order": 2, "emoji": "📋", "label": "확인 필요",     "cls": "g-chk",
+                   "desc": "소재 미확인"},
+    "format":     {"order": 3, "emoji": "📐", "label": "서식 정정",     "cls": "g-fmt",
+                   "desc": "「」·띄어쓰기 등 표기"},
+    "current":    {"order": 4, "emoji": "✅", "label": "현행 유지",     "cls": "g-cur",
+                   "desc": "변경 없음"},
 }
 # format = 내용은 현행이나 「」 없이 인용된 서식 결함(정비 권장, 최저 우선순위)
 GRADE_KEYS = ("mechanical", "review", "check", "format", "current")
@@ -104,6 +109,28 @@ def _diff_marks(old, new):
     return "".join(o_html), "".join(n_html)
 
 
+def _diff_unified(old, new):
+    """당시·현행을 한 흐름으로 합친 인라인 diff HTML. 삭제=취소선 빨강(d),
+    추가=초록(i)을 같은 자리에 나란히 표기(교정지·변경이력식). 예: '기획재정부장관이'가
+    '재정경제부장관이'로 바뀌면 '<del>기획재정부장관이</del><ins>재정경제부장관이</ins>'처럼
+    한 문장에서 보인다. 당시·현행 두 블록을 각각 읽지 않아도 무엇이 바뀌었는지 즉시 파악."""
+    a, b = _TOKEN_RE.findall(old or ""), _TOKEN_RE.findall(new or "")
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    out = []
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        at, bt = "".join(a[i1:i2]), "".join(b[j1:j2])
+        if op == "equal":
+            out.append(_esc(at))
+        elif op == "insert":
+            out.append(f'<mark class="i">{_esc(bt)}</mark>' if bt.strip() else _esc(bt))
+        elif op == "delete":
+            out.append(f'<mark class="d">{_esc(at)}</mark>' if at.strip() else _esc(at))
+        else:                                     # replace — 삭제(취소선) 뒤 추가(초록)
+            out.append(f'<mark class="d">{_esc(at)}</mark>' if at.strip() else _esc(at))
+            out.append(f'<mark class="i">{_esc(bt)}</mark>' if bt.strip() else _esc(bt))
+    return "".join(out)
+
+
 def grade_of(severity, change_type=""):
     """finding의 등급 키. 1단계(mechanical)·2단계(번호이동) 모두 수용."""
     if severity == "current":
@@ -137,6 +164,17 @@ def _get(f, key):
 
 
 # ---------- 행동 지시 문안 ----------
+def _josa(word, jong, nojong):
+    """받침 유무로 조사 선택. 끝글자가 한글이고 종성이 있으면 jong, 없으면 nojong.
+    끝이 비한글(」·숫자 등)이면 받침 없는 것으로 본다(발음 관용)."""
+    if not word:
+        return nojong
+    ch = word[-1]
+    if "가" <= ch <= "힣":
+        return jong if (ord(ch) - 0xAC00) % 28 else nojong
+    return nojong
+
+
 def action_text(f):
     """finding 1건 → 담당자 행동 지시 한 문장 (등급·변경유형별 템플릿).
 
@@ -158,9 +196,11 @@ def action_text(f):
     if (naked or spacing) and _get(f, "severity") == "current":
         cl = f" {clause}" if clause else ""
         if naked:
-            return (f"「{law}」{cl} 인용을 꺽쇠(「」) 서식으로 정정 ({loc}) "
-                    f"— 내용 변경은 없음, 서식만 정비")
-        return (f"「{law}」 약칭을 앞말과 띄어 써 정정 ({loc}) "
+            a = f"{law}{cl}"            # 현재(꺽쇠 없는 맨몸 인용)
+            b = f"「{law}」{cl}"          # 정정(꺽쇠 서식)
+            return (f'(서식만 정비) "{a}"{_josa(a, "을", "를")} '
+                    f'"{b}"{_josa(b, "으로", "로")} 정정 — 내용 변경은 없음 ({loc})')
+        return (f'(서식만 정비) 「{law}」 약칭을 앞말과 띄어 정정 ({loc}) '
                 f"— 내용 변경은 없음, 띄어쓰기만 정비")
     # 내용 변경이 동반된 서식 결함은 내용 정비와 함께 서식도 바로잡도록 덧붙임
     extra = (f' (덧붙여 「{law}」처럼 꺽쇠 서식으로 정정)' if naked else "")
@@ -216,7 +256,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
         where = "WHERE o.dept = ?"
         args = [dept]
     rows = conn.execute(
-        f"""SELECT f.mst, f.law_name, f.clause_label, {sel('clause_detail')},
+        f"""SELECT f.mst, f.law_name, {sel('law_id')}, f.clause_label, {sel('clause_detail')},
                   f.severity, f.change_type,
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
                   f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
@@ -279,6 +319,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
             o["items"].append({
                 "grade": g,
                 "law_name": r["law_name"] or "",
+                "law_id": r["law_id"] or "",
                 "clause_label": r["clause_label"] or "",
                 "clause_detail": r["clause_detail"] or "",
                 "change_type": r["change_type"] or "",
@@ -297,6 +338,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
             o["items"].append({
                 "grade": "current",
                 "law_name": r["law_name"] or "",
+                "law_id": r["law_id"] or "",
                 "clause_label": r["clause_label"] or "",
                 "clause_detail": r["clause_detail"] or "",
                 "change_type": "동일",
@@ -407,6 +449,7 @@ details.citem > .act { padding:2px 10px 0; } details.citem > .basis { padding:0 
 details.citem > .diff { margin:6px 10px 10px; }
 details.citem.focus { box-shadow:inset 3px 0 0 var(--navy2); }
 .item .law { font-size:13px; font-weight:600; color:#374151; }
+.item .law .ki { font-weight:400; font-size:12px; margin-right:1px; }
 .item .act { font-size:13.5px; margin:3px 0; color:var(--ink); }
 .basis { font-size:11.5px; color:var(--muted); margin:4px 0 6px; }
 .basis b { color:#374151; font-weight:600; }
@@ -429,6 +472,12 @@ mark.cite-local { background:#f1f5f9; color:#475569;
 .item .ev { font-size:12px; color:#6b7280; white-space:pre-wrap;
             background:#f9fafb; border-radius:6px; padding:7px 9px; margin-top:6px; }
 .diff { border:1px solid #eef0f3; border-radius:6px; overflow:hidden; margin-top:6px; }
+.diff .diff-uni { font-size:12px; padding:7px 9px; white-space:pre-wrap;
+  word-break:keep-all; overflow-wrap:anywhere; color:#374151; line-height:1.55; }
+.diff .diff-split { display:none; }                 /* 대시보드 기본 = 통합(합쳐) 보기 */
+/* 나란히 모드(대시보드 토글) · 인쇄 권고서(.page)는 당시·현행 나란히 */
+.diff-mode-split .diff .diff-uni, .page .diff .diff-uni { display:none; }
+.diff-mode-split .diff .diff-split, .page .diff .diff-split { display:block; }
 .drow { display:flex; gap:8px; font-size:12px; padding:6px 9px; }
 .drow + .drow { border-top:1px solid #f1f3f5; }
 .dlabel { flex:0 0 34px; font-weight:700; font-size:11px; padding-top:1px; }
@@ -523,7 +572,11 @@ def _evidence_block(it):
         ev = it.get("evidence", "")
         return f'<div class="ev">{_esc(ev)}</div>' if ev else ""
     o_html, n_html = _diff_marks(old, new)
-    return f'<div class="diff">{_drow(o_html, n_html)}</div>'
+    # 통합(합쳐) 보기 + 나란히(당시·현행) 보기를 함께 담고 CSS/토글로 하나만 노출
+    return (f'<div class="diff">'
+            f'<div class="diff-uni">{_diff_unified(old, new)}</div>'
+            f'<div class="diff-split">{_drow(o_html, n_html)}</div>'
+            f'</div>')
 
 
 def _item_block(it, collapsible=False):
@@ -537,7 +590,10 @@ def _item_block(it, collapsible=False):
         it["grade"], it["change_type"] or GRADE_META[it["grade"]]["label"])
     # 인용된 호·목까지 표기(제3조제5호나목) — 좁혀 판정한 단위를 그대로 보여줌
     clause_full = (it["clause_label"] or "") + (it.get("clause_detail") or "")
-    law = f'「{_esc(it["law_name"])}」 {_esc(clause_full)}'.rstrip()
+    # 인용 종류 아이콘: 행정규칙(훈령·예규·고시, ADM/지자체자체) ⇄ 상위법령(법률·시행령·규칙)
+    is_adm = str(it.get("law_id") or "").startswith("ADM:") or is_local_admrul(it.get("law_name"))
+    kicon = "📕" if is_adm else "⚖"
+    law = f'<span class="ki" title="{"행정규칙" if is_adm else "상위법령"}">{kicon}</span> 「{_esc(it["law_name"])}」 {_esc(clause_full)}'.rstrip()
     # 내용변경 항목엔 서식 결함 배지 병기(format 등급은 태그 자체가 '서식'이라 생략)
     badges = ""
     if it["grade"] != "format":
@@ -614,8 +670,8 @@ def _ord_block(o, collapsible=False):
 def render_html(model, generated_at="", title="자치법규 정비 권고서"):
     s = model["summary"]
     cards = (
-        _card(s, "mechanical", "기계적 개정") + _card(s, "review", "실질 검토") +
-        _card(s, "check", "확인 필요") + _card(s, "format", "서식 정비") +
+        _card(s, "mechanical", "조문번호 정정") + _card(s, "review", "실질 검토") +
+        _card(s, "check", "확인 필요") + _card(s, "format", "서식 정정") +
         _card(s, "current", "현행 유지"))
     blocks = "".join(_ord_block(o) for o in model["ordinances"])
     sub = (f'전체 {s["ordinances_total"]}개 조례 중 '
