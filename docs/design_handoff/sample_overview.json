@@ -1,0 +1,1103 @@
+{
+  "batch": {
+    "id": 1,
+    "org": "6410000",
+    "sborg": "4020000",
+    "region_name": "군포시",
+    "batch_date": "2026-07-01T10:55:42",
+    "ordinances_n": 640,
+    "laws_n": 641,
+    "findings_n": 3218,
+    "deep": 1,
+    "status": "reparsed"
+  },
+  "grades": {
+    "mechanical": 0,
+    "review": 581,
+    "check": 47,
+    "format": 49,
+    "current": 2541
+  },
+  "grade_meta": {
+    "mechanical": {
+      "emoji": "🔧",
+      "label": "기계적 개정"
+    },
+    "review": {
+      "emoji": "⚠️",
+      "label": "실질 검토"
+    },
+    "check": {
+      "emoji": "📋",
+      "label": "확인"
+    },
+    "format": {
+      "emoji": "📐",
+      "label": "서식 정비"
+    },
+    "current": {
+      "emoji": "✅",
+      "label": "현행 유지"
+    }
+  },
+  "grade_order": [
+    "mechanical",
+    "review",
+    "check",
+    "format",
+    "current"
+  ],
+  "totals": {
+    "ordinances": 640,
+    "action": 257,
+    "depts": 36
+  },
+  "depts": [
+    {
+      "dept": "안전총괄과",
+      "total": 30,
+      "action": 21,
+      "grades": {
+        "mechanical": 0,
+        "review": 53,
+        "check": 1,
+        "format": 0,
+        "current": 114
+      }
+    },
+    {
+      "dept": "의회사무과",
+      "total": 39,
+      "action": 16,
+      "grades": {
+        "mechanical": 0,
+        "review": 14,
+        "check": 3,
+        "format": 8,
+        "current": 183
+      }
+    },
+    {
+      "dept": "위생자원과",
+      "total": 24,
+      "action": 13,
+      "grades": {
+        "mechanical": 0,
+        "review": 33,
+        "check": 3,
+        "format": 7,
+        "current": 79
+      }
+    },
+    {
+      "dept": "교육체육과",
+      "total": 29,
+      "action": 11,
+      "grades": {
+        "mechanical": 0,
+        "review": 20,
+        "check": 0,
+        "format": 1,
+        "current": 55
+      }
+    },
+    {
+      "dept": "기획예산실",
+      "total": 50,
+      "action": 11,
+      "grades": {
+        "mechanical": 0,
+        "review": 16,
+        "check": 2,
+        "format": 3,
+        "current": 189
+      }
+    },
+    {
+      "dept": "건설과",
+      "total": 19,
+      "action": 10,
+      "grades": {
+        "mechanical": 0,
+        "review": 16,
+        "check": 3,
+        "format": 2,
+        "current": 51
+      }
+    },
+    {
+      "dept": "노인장애인과",
+      "total": 23,
+      "action": 10,
+      "grades": {
+        "mechanical": 0,
+        "review": 25,
+        "check": 1,
+        "format": 0,
+        "current": 68
+      }
+    },
+    {
+      "dept": "문화예술과",
+      "total": 26,
+      "action": 10,
+      "grades": {
+        "mechanical": 0,
+        "review": 15,
+        "check": 0,
+        "format": 0,
+        "current": 23
+      }
+    },
+    {
+      "dept": "보건행정과",
+      "total": 18,
+      "action": 10,
+      "grades": {
+        "mechanical": 0,
+        "review": 22,
+        "check": 2,
+        "format": 0,
+        "current": 32
+      }
+    },
+    {
+      "dept": "기업정책과",
+      "total": 33,
+      "action": 9,
+      "grades": {
+        "mechanical": 0,
+        "review": 17,
+        "check": 1,
+        "format": 1,
+        "current": 59
+      }
+    },
+    {
+      "dept": "아동청소년과",
+      "total": 25,
+      "action": 9,
+      "grades": {
+        "mechanical": 0,
+        "review": 13,
+        "check": 2,
+        "format": 3,
+        "current": 56
+      }
+    },
+    {
+      "dept": "행정지원과",
+      "total": 50,
+      "action": 9,
+      "grades": {
+        "mechanical": 0,
+        "review": 19,
+        "check": 1,
+        "format": 1,
+        "current": 138
+      }
+    },
+    {
+      "dept": "건축과",
+      "total": 14,
+      "action": 8,
+      "grades": {
+        "mechanical": 0,
+        "review": 27,
+        "check": 0,
+        "format": 0,
+        "current": 240
+      }
+    },
+    {
+      "dept": "교통행정과",
+      "total": 21,
+      "action": 8,
+      "grades": {
+        "mechanical": 0,
+        "review": 15,
+        "check": 2,
+        "format": 1,
+        "current": 67
+      }
+    },
+    {
+      "dept": "산본보건지소",
+      "total": 14,
+      "action": 8,
+      "grades": {
+        "mechanical": 0,
+        "review": 11,
+        "check": 2,
+        "format": 1,
+        "current": 21
+      }
+    },
+    {
+      "dept": "복지정책과",
+      "total": 26,
+      "action": 7,
+      "grades": {
+        "mechanical": 0,
+        "review": 6,
+        "check": 1,
+        "format": 4,
+        "current": 64
+      }
+    },
+    {
+      "dept": "여성가족과",
+      "total": 15,
+      "action": 7,
+      "grades": {
+        "mechanical": 0,
+        "review": 25,
+        "check": 1,
+        "format": 0,
+        "current": 32
+      }
+    },
+    {
+      "dept": "환경과",
+      "total": 15,
+      "action": 7,
+      "grades": {
+        "mechanical": 0,
+        "review": 33,
+        "check": 0,
+        "format": 0,
+        "current": 49
+      }
+    },
+    {
+      "dept": "생태공원녹지과",
+      "total": 8,
+      "action": 6,
+      "grades": {
+        "mechanical": 0,
+        "review": 11,
+        "check": 2,
+        "format": 0,
+        "current": 30
+      }
+    },
+    {
+      "dept": "자치분권과",
+      "total": 21,
+      "action": 6,
+      "grades": {
+        "mechanical": 0,
+        "review": 9,
+        "check": 1,
+        "format": 1,
+        "current": 50
+      }
+    },
+    {
+      "dept": "지역경제과",
+      "total": 21,
+      "action": 6,
+      "grades": {
+        "mechanical": 0,
+        "review": 27,
+        "check": 2,
+        "format": 0,
+        "current": 152
+      }
+    },
+    {
+      "dept": "감사실",
+      "total": 12,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 13,
+        "check": 1,
+        "format": 0,
+        "current": 43
+      }
+    },
+    {
+      "dept": "민원봉사과",
+      "total": 10,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 14,
+        "check": 1,
+        "format": 2,
+        "current": 37
+      }
+    },
+    {
+      "dept": "세정과",
+      "total": 8,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 13,
+        "check": 3,
+        "format": 0,
+        "current": 80
+      }
+    },
+    {
+      "dept": "수도과",
+      "total": 11,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 4,
+        "check": 2,
+        "format": 0,
+        "current": 28
+      }
+    },
+    {
+      "dept": "주택정책과",
+      "total": 7,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 19,
+        "check": 0,
+        "format": 0,
+        "current": 57
+      }
+    },
+    {
+      "dept": "하수과",
+      "total": 7,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 20,
+        "check": 0,
+        "format": 3,
+        "current": 23
+      }
+    },
+    {
+      "dept": "스마트정보과",
+      "total": 11,
+      "action": 4,
+      "grades": {
+        "mechanical": 0,
+        "review": 13,
+        "check": 2,
+        "format": 0,
+        "current": 42
+      }
+    },
+    {
+      "dept": "차량관리과",
+      "total": 8,
+      "action": 4,
+      "grades": {
+        "mechanical": 0,
+        "review": 7,
+        "check": 0,
+        "format": 10,
+        "current": 66
+      }
+    },
+    {
+      "dept": "회계과",
+      "total": 16,
+      "action": 4,
+      "grades": {
+        "mechanical": 0,
+        "review": 20,
+        "check": 2,
+        "format": 0,
+        "current": 134
+      }
+    },
+    {
+      "dept": "도시개발과",
+      "total": 3,
+      "action": 3,
+      "grades": {
+        "mechanical": 0,
+        "review": 8,
+        "check": 3,
+        "format": 0,
+        "current": 38
+      }
+    },
+    {
+      "dept": "도시환경과",
+      "total": 7,
+      "action": 3,
+      "grades": {
+        "mechanical": 0,
+        "review": 6,
+        "check": 0,
+        "format": 1,
+        "current": 13
+      }
+    },
+    {
+      "dept": "세원관리과",
+      "total": 6,
+      "action": 3,
+      "grades": {
+        "mechanical": 0,
+        "review": 12,
+        "check": 0,
+        "format": 0,
+        "current": 55
+      }
+    },
+    {
+      "dept": "도시계획과",
+      "total": 5,
+      "action": 2,
+      "grades": {
+        "mechanical": 0,
+        "review": 4,
+        "check": 2,
+        "format": 0,
+        "current": 161
+      }
+    },
+    {
+      "dept": "홍보실",
+      "total": 4,
+      "action": 2,
+      "grades": {
+        "mechanical": 0,
+        "review": 1,
+        "check": 1,
+        "format": 0,
+        "current": 4
+      }
+    },
+    {
+      "dept": "중앙도서관",
+      "total": 4,
+      "action": 0,
+      "grades": {
+        "mechanical": 0,
+        "review": 0,
+        "check": 0,
+        "format": 0,
+        "current": 8
+      }
+    }
+  ],
+  "dept_groups": [
+    {
+      "no": "01",
+      "name": "의회",
+      "total": 39,
+      "action": 16,
+      "grades": {
+        "mechanical": 0,
+        "review": 14,
+        "check": 3,
+        "format": 8,
+        "current": 183
+      },
+      "depts": [
+        {
+          "dept": "의회사무과",
+          "total": 39,
+          "action": 16,
+          "grades": {
+            "mechanical": 0,
+            "review": 14,
+            "check": 3,
+            "format": 8,
+            "current": 183
+          }
+        }
+      ]
+    },
+    {
+      "no": "02",
+      "name": "기획예산실",
+      "total": 50,
+      "action": 11,
+      "grades": {
+        "mechanical": 0,
+        "review": 16,
+        "check": 2,
+        "format": 3,
+        "current": 189
+      },
+      "depts": [
+        {
+          "dept": "기획예산실",
+          "total": 50,
+          "action": 11,
+          "grades": {
+            "mechanical": 0,
+            "review": 16,
+            "check": 2,
+            "format": 3,
+            "current": 189
+          }
+        }
+      ]
+    },
+    {
+      "no": "03",
+      "name": "홍보실",
+      "total": 4,
+      "action": 2,
+      "grades": {
+        "mechanical": 0,
+        "review": 1,
+        "check": 1,
+        "format": 0,
+        "current": 4
+      },
+      "depts": [
+        {
+          "dept": "홍보실",
+          "total": 4,
+          "action": 2,
+          "grades": {
+            "mechanical": 0,
+            "review": 1,
+            "check": 1,
+            "format": 0,
+            "current": 4
+          }
+        }
+      ]
+    },
+    {
+      "no": "04",
+      "name": "감사실",
+      "total": 12,
+      "action": 5,
+      "grades": {
+        "mechanical": 0,
+        "review": 13,
+        "check": 1,
+        "format": 0,
+        "current": 43
+      },
+      "depts": [
+        {
+          "dept": "감사실",
+          "total": 12,
+          "action": 5,
+          "grades": {
+            "mechanical": 0,
+            "review": 13,
+            "check": 1,
+            "format": 0,
+            "current": 43
+          }
+        }
+      ]
+    },
+    {
+      "no": "05",
+      "name": "행정지원국",
+      "total": 147,
+      "action": 45,
+      "grades": {
+        "mechanical": 0,
+        "review": 90,
+        "check": 5,
+        "format": 5,
+        "current": 345
+      },
+      "depts": [
+        {
+          "dept": "행정지원과",
+          "total": 50,
+          "action": 9,
+          "grades": {
+            "mechanical": 0,
+            "review": 19,
+            "check": 1,
+            "format": 1,
+            "current": 138
+          }
+        },
+        {
+          "dept": "자치분권과",
+          "total": 21,
+          "action": 6,
+          "grades": {
+            "mechanical": 0,
+            "review": 9,
+            "check": 1,
+            "format": 1,
+            "current": 50
+          }
+        },
+        {
+          "dept": "민원봉사과",
+          "total": 10,
+          "action": 5,
+          "grades": {
+            "mechanical": 0,
+            "review": 14,
+            "check": 1,
+            "format": 2,
+            "current": 37
+          }
+        },
+        {
+          "dept": "스마트정보과",
+          "total": 11,
+          "action": 4,
+          "grades": {
+            "mechanical": 0,
+            "review": 13,
+            "check": 2,
+            "format": 0,
+            "current": 42
+          }
+        },
+        {
+          "dept": "교육체육과",
+          "total": 29,
+          "action": 11,
+          "grades": {
+            "mechanical": 0,
+            "review": 20,
+            "check": 0,
+            "format": 1,
+            "current": 55
+          }
+        },
+        {
+          "dept": "문화예술과",
+          "total": 26,
+          "action": 10,
+          "grades": {
+            "mechanical": 0,
+            "review": 15,
+            "check": 0,
+            "format": 0,
+            "current": 23
+          }
+        }
+      ]
+    },
+    {
+      "no": "06",
+      "name": "기업재정국",
+      "total": 84,
+      "action": 27,
+      "grades": {
+        "mechanical": 0,
+        "review": 89,
+        "check": 8,
+        "format": 1,
+        "current": 480
+      },
+      "depts": [
+        {
+          "dept": "기업정책과",
+          "total": 33,
+          "action": 9,
+          "grades": {
+            "mechanical": 0,
+            "review": 17,
+            "check": 1,
+            "format": 1,
+            "current": 59
+          }
+        },
+        {
+          "dept": "지역경제과",
+          "total": 21,
+          "action": 6,
+          "grades": {
+            "mechanical": 0,
+            "review": 27,
+            "check": 2,
+            "format": 0,
+            "current": 152
+          }
+        },
+        {
+          "dept": "회계과",
+          "total": 16,
+          "action": 4,
+          "grades": {
+            "mechanical": 0,
+            "review": 20,
+            "check": 2,
+            "format": 0,
+            "current": 134
+          }
+        },
+        {
+          "dept": "세정과",
+          "total": 8,
+          "action": 5,
+          "grades": {
+            "mechanical": 0,
+            "review": 13,
+            "check": 3,
+            "format": 0,
+            "current": 80
+          }
+        },
+        {
+          "dept": "세원관리과",
+          "total": 6,
+          "action": 3,
+          "grades": {
+            "mechanical": 0,
+            "review": 12,
+            "check": 0,
+            "format": 0,
+            "current": 55
+          }
+        }
+      ]
+    },
+    {
+      "no": "07",
+      "name": "도시주택국",
+      "total": 48,
+      "action": 28,
+      "grades": {
+        "mechanical": 0,
+        "review": 74,
+        "check": 8,
+        "format": 2,
+        "current": 547
+      },
+      "depts": [
+        {
+          "dept": "도시계획과",
+          "total": 5,
+          "action": 2,
+          "grades": {
+            "mechanical": 0,
+            "review": 4,
+            "check": 2,
+            "format": 0,
+            "current": 161
+          }
+        },
+        {
+          "dept": "도시개발과",
+          "total": 3,
+          "action": 3,
+          "grades": {
+            "mechanical": 0,
+            "review": 8,
+            "check": 3,
+            "format": 0,
+            "current": 38
+          }
+        },
+        {
+          "dept": "주택정책과",
+          "total": 7,
+          "action": 5,
+          "grades": {
+            "mechanical": 0,
+            "review": 19,
+            "check": 0,
+            "format": 0,
+            "current": 57
+          }
+        },
+        {
+          "dept": "건설과",
+          "total": 19,
+          "action": 10,
+          "grades": {
+            "mechanical": 0,
+            "review": 16,
+            "check": 3,
+            "format": 2,
+            "current": 51
+          }
+        },
+        {
+          "dept": "건축과",
+          "total": 14,
+          "action": 8,
+          "grades": {
+            "mechanical": 0,
+            "review": 27,
+            "check": 0,
+            "format": 0,
+            "current": 240
+          }
+        }
+      ]
+    },
+    {
+      "no": "08",
+      "name": "안전환경국",
+      "total": 98,
+      "action": 53,
+      "grades": {
+        "mechanical": 0,
+        "review": 141,
+        "check": 6,
+        "format": 18,
+        "current": 375
+      },
+      "depts": [
+        {
+          "dept": "안전총괄과",
+          "total": 30,
+          "action": 21,
+          "grades": {
+            "mechanical": 0,
+            "review": 53,
+            "check": 1,
+            "format": 0,
+            "current": 114
+          }
+        },
+        {
+          "dept": "환경과",
+          "total": 15,
+          "action": 7,
+          "grades": {
+            "mechanical": 0,
+            "review": 33,
+            "check": 0,
+            "format": 0,
+            "current": 49
+          }
+        },
+        {
+          "dept": "위생자원과",
+          "total": 24,
+          "action": 13,
+          "grades": {
+            "mechanical": 0,
+            "review": 33,
+            "check": 3,
+            "format": 7,
+            "current": 79
+          }
+        },
+        {
+          "dept": "교통행정과",
+          "total": 21,
+          "action": 8,
+          "grades": {
+            "mechanical": 0,
+            "review": 15,
+            "check": 2,
+            "format": 1,
+            "current": 67
+          }
+        },
+        {
+          "dept": "차량관리과",
+          "total": 8,
+          "action": 4,
+          "grades": {
+            "mechanical": 0,
+            "review": 7,
+            "check": 0,
+            "format": 10,
+            "current": 66
+          }
+        }
+      ]
+    },
+    {
+      "no": "09",
+      "name": "복지국",
+      "total": 93,
+      "action": 33,
+      "grades": {
+        "mechanical": 0,
+        "review": 69,
+        "check": 5,
+        "format": 7,
+        "current": 228
+      },
+      "depts": [
+        {
+          "dept": "복지정책과",
+          "total": 26,
+          "action": 7,
+          "grades": {
+            "mechanical": 0,
+            "review": 6,
+            "check": 1,
+            "format": 4,
+            "current": 64
+          }
+        },
+        {
+          "dept": "노인장애인과",
+          "total": 23,
+          "action": 10,
+          "grades": {
+            "mechanical": 0,
+            "review": 25,
+            "check": 1,
+            "format": 0,
+            "current": 68
+          }
+        },
+        {
+          "dept": "여성가족과",
+          "total": 15,
+          "action": 7,
+          "grades": {
+            "mechanical": 0,
+            "review": 25,
+            "check": 1,
+            "format": 0,
+            "current": 32
+          }
+        },
+        {
+          "dept": "아동청소년과",
+          "total": 25,
+          "action": 9,
+          "grades": {
+            "mechanical": 0,
+            "review": 13,
+            "check": 2,
+            "format": 3,
+            "current": 56
+          }
+        },
+        {
+          "dept": "중앙도서관",
+          "total": 4,
+          "action": 0,
+          "grades": {
+            "mechanical": 0,
+            "review": 0,
+            "check": 0,
+            "format": 0,
+            "current": 8
+          }
+        }
+      ]
+    },
+    {
+      "no": "10",
+      "name": "직속기관(보건소)",
+      "total": 32,
+      "action": 18,
+      "grades": {
+        "mechanical": 0,
+        "review": 33,
+        "check": 4,
+        "format": 1,
+        "current": 53
+      },
+      "depts": [
+        {
+          "dept": "보건행정과",
+          "total": 18,
+          "action": 10,
+          "grades": {
+            "mechanical": 0,
+            "review": 22,
+            "check": 2,
+            "format": 0,
+            "current": 32
+          }
+        },
+        {
+          "dept": "산본보건지소",
+          "total": 14,
+          "action": 8,
+          "grades": {
+            "mechanical": 0,
+            "review": 11,
+            "check": 2,
+            "format": 1,
+            "current": 21
+          }
+        }
+      ]
+    },
+    {
+      "no": "11",
+      "name": "사업소(수도녹지)",
+      "total": 26,
+      "action": 16,
+      "grades": {
+        "mechanical": 0,
+        "review": 35,
+        "check": 4,
+        "format": 3,
+        "current": 81
+      },
+      "depts": [
+        {
+          "dept": "수도과",
+          "total": 11,
+          "action": 5,
+          "grades": {
+            "mechanical": 0,
+            "review": 4,
+            "check": 2,
+            "format": 0,
+            "current": 28
+          }
+        },
+        {
+          "dept": "하수과",
+          "total": 7,
+          "action": 5,
+          "grades": {
+            "mechanical": 0,
+            "review": 20,
+            "check": 0,
+            "format": 3,
+            "current": 23
+          }
+        },
+        {
+          "dept": "생태공원녹지과",
+          "total": 8,
+          "action": 6,
+          "grades": {
+            "mechanical": 0,
+            "review": 11,
+            "check": 2,
+            "format": 0,
+            "current": 30
+          }
+        }
+      ]
+    },
+    {
+      "no": "12",
+      "name": "하부행정기관",
+      "total": 7,
+      "action": 3,
+      "grades": {
+        "mechanical": 0,
+        "review": 6,
+        "check": 0,
+        "format": 1,
+        "current": 13
+      },
+      "depts": [
+        {
+          "dept": "도시환경과",
+          "total": 7,
+          "action": 3,
+          "grades": {
+            "mechanical": 0,
+            "review": 6,
+            "check": 0,
+            "format": 1,
+            "current": 13
+          }
+        }
+      ]
+    }
+  ]
+}

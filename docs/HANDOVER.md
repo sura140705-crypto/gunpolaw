@@ -1,86 +1,152 @@
-군포시 조례-상위법령 정합성 검토 시스템 v3.4 — 작업 인계
+# gunpolaw 인계·이어가기 가이드
 
-[프로젝트 목표]
-군포시 자치법규 640건이 인용하는 상위 법령·조항이 조례 제정 이후
-개정되었는지를 조항 단위로 자동 검증해서 "기계적 일괄 개정 가능 후보"를
-식별. 연말 시연용.
+군포시 자치법규(조례·규칙)가 인용한 **상위 법령·행정규칙 조항이 조례 시행 이후 개정·삭제됐는지**를
+조문 단위로 자동 판정해, 정비가 필요한 조례·조문을 담당 부서(과)별로 보여주는 읽기전용 대시보드.
+다른 환경에서 작업을 이어갈 때 이 문서 하나로 구조·재구성·배포를 파악할 수 있게 정리한 것.
 
-[작업 환경]
-- 경로: C:\probe_v3\
-- 파일: file1.py (Phase 1~4+규칙엔진) / phase6.py (조항 검증) / gunpo_ui_v2.html (UI)
-  ※ file1.py는 gunpo_ui_v2.html을 serve하므로 v3 HTML도 v2 이름 유지
-- 실행: cd C:\probe_v3 && python file1.py → http://localhost:8765
-- OC 키: 환경변수 LAW_OC_KEY 로 주입 (소스·문서·DB에 저장 금지)
-- DB: gunpo_ordinances.db (SQLite)
-- 환경: Windows cmd (sh 문법 주의: # 주석 안 됨)
+---
 
-[현재 v3.4 상태 — 모두 정상 동작 검증 완료]
-Phase 1~4: 자치법규 전수 수집 + 본문 파싱 + 인용 추출 + 최신화 점검
-Phase 5  : 규칙 엔진 통합 (R001~R015 양식 A/B/C 내장)
-           - file1.py의 extract_all_refs()에 직접 녹여넣음
-           - 약칭 inline 정의(R006) + 정의 직후 조항(R006X)
-           - carry-over (R001/R015 "같은 법", "같은 법 시행령")
-           - 메타 부착: quantifier(R009), exclusion(R011), proviso(R014),
-             byeolpyo(R010), range_expanded(R003), alias_source(R007)
-           - 분류 트랙 3개: excluded_refs / local_ordinance_refs / byeolpyo_track
-Phase 6  : 조항 단위 시점 검증 (phase6.py 무수정)
-           - tokenize_clauses: "제30조부터 제32조까지" → [30,31,32] 전개
-           - check_clauses_batch + get_old_and_new
+## 1. 실행 환경 / 설치
 
-[UI 상태 — STEP 2 좌우 분할 뷰 완성]
-좌측: 조례 원문 (조문별 카드)에 「법령명」+조항 표현을 색칠 mark로 감쌈
-우측: 인스펙터 — 클릭 시 법령/조항/메타 배지/원문 인용 표현/검증 결과 표시
-인스펙터 [⚖️ 이 인용 즉시 검증] 버튼 → phase6 호출 → 본문 색이 빨/노/녹으로 변경
+- **Python 3** (3.9+). **표준 라이브러리만 사용 — 외부 의존성 0** (`requirements.txt` 비어 있음이 정상).
+- OS 무관(개발은 Windows). DB는 SQLite 파일 `gunpolaw.db`(리포에 동봉돼 있어 재구성 없이 바로 서빙 가능).
 
-색상 범례:
-- 노랑(yellow-300) = 법령 미검증
-- 보라(purple-300) = 자치법규 (검토 대상 외)
-- 빨강(red-300) = 위험(critical)
-- 호박(amber-300) = 검토권고(warning)
-- 초록(green-300) = 최신(current)
+```bash
+python -m gunpolaw --serve 8765     # 대시보드 → http://127.0.0.1:8765/  (키·인터넷 불요)
+```
 
-[골든케이스 검증 결과]
-「군포시 지적재조사위원회 등 구성 및 운영에 관한 조례」 (시행 2013-12-01)
-인용: 「지적재조사에 관한 특별법」 제30조 / 제31조 / 제32조
-판정: 모두 🚨 4,415일 뒤 개정 (2017/2020/2024 3회)
+---
 
-[법제처 OpenAPI 탐사 결과 — 재탐사 불필요]
-살아있는 API:
-- law      / lawService.do   ID= 또는 LM=  (본문 + 각 조문에 <조문시행일자> 박혀있음)
-- eflaw    / lawService.do   ID=          (시행일자별 본문)
-- eflaw    / lawSearch.do    query=       (시행일자별 법령 목록)
-- oldAndNew/ lawService.do   ID=          (신구법 비교 본문)
-- ordin    / lawSearch.do    org+sborg+knd (자치법규 검색)
+## 2. 코드 구조 (gunpolaw/ 패키지)
 
-죽은 API (OC키 권한 없음): lsHstInf, lsHst, lsJoHst, joHst, dayJoHst,
-                          delegated, lsSysDgm, lsAbbrv, abbrLs
-efYd 파라미터: 본문 조회엔 무력 (검색에선 작동)
+수집(네트워크)과 분석·서빙(로컬)을 분리한 단일 엔진. "API는 채울 때만, 판정은 로컬 DB로".
 
-핵심 발견: lawService.do?target=law&ID= 응답의 각 <조문단위>에
-<조문시행일자>, <조문이동이전>, <조문이동이후>, <조문변경여부>가 박혀있어
-efYd 없이도 조항 시점 검증 가능 → 이게 Phase 6의 작동 원리
+| 모듈 | 역할 |
+|---|---|
+| `config.py` | 대상 지자체 설정(org/sborg/region_name/knd_codes/local_prefix). env > region.json > 기본값(군포시). |
+| `moleg.py` | **법제처 OpenAPI 클라이언트(유일한 네트워크 경계, OC키 사용)**. 아래 §5 참조. |
+| `db.py` | SQLite 스키마·연결·경량 마이그레이션. |
+| `extract.py` | 조례 본문에서 인용 추출(「법령」·"같은 법" carry-over·맨몸·inline 약칭) + `group_by_law`. |
+| `clauses.py` | 조·항·호·목 토큰화(`tokenize_clauses`) — 인용 표준(§6) 준수, 항/목 나열 전개. |
+| `parse.py` | 법령/행정규칙/조례 본문 XML 파싱, 신구조문 대비 파싱, 조라벨(`제N조[의M]`). |
+| `checks.py` | 조항 단위 시점·내용 판정(`check_clause`/`diff_clause`), 등급 도출, 호/목 subunit 추출, 조사(`_josa`). |
+| `pipeline.py` | 조례 1건 분석 오케스트레이션(인용→법령ID 해소→비교→findings). 법령 실패 시 행정규칙 폴백·신구법비교. |
+| `history.py` | 법령 시행일별 버전 목록/선택(`as_of`) — deep(당시 시행본) 비교용. |
+| `batch.py` | 전수 수집·분석, findings/citations/laws 영속, 개정 델타 감지(역추적), `persist_result`(공용). |
+| `reparse.py` | **DB-only 재분석**(`_DBSource`, API 0) + 신선도 증분 수집(`StaleAwareSource`). |
+| `report.py` | 등급 메타, 권고 모델(`build_model`), HTML 권고서(`render_html`)·조각(`recommend_fragment`)·CSV(`model_to_csv`/`grade_to_csv`), 행동지시(`action_text`/`action_html`). |
+| `serve.py` | http.server 대시보드(`DASHBOARD_HTML` 단일 문자열)·JSON API·정적 내보내기(`export_static`)·관리자(`ADMIN_HTML`). |
+| `diag.py` | `/admin` 판정 근거 재실행 추적(검토 로직을 사람이 눈으로 검증). |
+| `__main__.py` | CLI 진입점. |
 
-[알려진 사용자 환경 이슈]
-복사·붙여넣기 과정에서 정규식 리터럴(/.../) 안의 백슬래시+대괄호 조합이
-$ 기호로 깨지는 경우 있었음. 해결책: new RegExp(문자열) 방식 + 한글은 그대로
-string으로. buildHitSpans 함수가 이 방식으로 작성돼 있으니 참고.
+**HTML/CSS/JS는 별도 파일이 없다.** 대시보드는 `serve.py`의 `DASHBOARD_HTML`(문자열: `<style>`+`<body>`+`<script>`),
+권고서는 `report.py`의 `render_html`+`_CSS`. 오프라인 제약상 외부 CDN·웹폰트 금지, 이미지는 data-URI 인라인
+(예: 헤더 군포시 마크 = `gunpolaw/gunpo_logo.png`를 import 시 base64로 주입).
 
-[다음에 하고 싶은 것 — 사용자가 다음 창에서 지시]
-시연 사용자 니즈 = "이 조례를 이렇게 개정해야 한다"는 행동 지시서 출력.
-(현재는 데이터 분석가 뷰. 개정 권고서 + 등급 분류는 미구현)
+---
 
-candidate 작업 후보:
-A) STEP 4 보고서를 "개정 권고서"로 재설계
-   - 등급 분류: 🔧 기계적 개정 / ⚠️ 실질 검토 / 📋 확인 / ✅ 현행 유지
-   - 권고 문안 초안 자동 생성
-   - python-docx로 결재 가능 .docx 다운로드
-B) STEP 1 상단에 "일괄 개정 후보 위젯" — 640건 중 N건 자동 분류
-C) 분할 뷰 인스펙터 개선 — 신구법 비교 인라인 표시 등
+## 3. DB 재구성 프로세스 (API로 새로 구성)
 
-[작업 원칙]
-- file1.py / phase6.py / gunpo_ui_v2.html 단일 파일 유지 (별도 모듈 분리 X)
-- DB 스키마 무변경
-- 기존 함수 시그니처 유지
-- 시연 시간 3-5분 내 설명 가능한 규모
+`gunpolaw.db`는 리포에 있지만, 처음부터 다시 만들려면:
 
-지금부터 ___ 작업 시작해줘.
+1. **OC 키 발급** — 국가법령정보 공동활용(open.law.go.kr)에서 신청 → 환경변수로 주입(소스·DB에 저장 금지):
+   ```bash
+   set LAW_OC_KEY=발급받은_OC_키          # (Windows cmd)  /  export LAW_OC_KEY=...  (bash)
+   ```
+2. **(선택) 대상 지자체** — 군포시가 기본. 바꾸려면 `region.json` 또는 env:
+   ```bash
+   set LAW_ORG=6410000        # 광역(경기도)
+   set LAW_SBORG=4020000      # 시군(군포시)
+   set LAW_REGION=군포시
+   set LAW_LOCAL_PREFIX=경기도,안양시,의왕시   # 자치법규 인식 접두어(쉼표구분)
+   ```
+3. **전수 수집·분석** (라이브 API 호출, 시간 소요):
+   ```bash
+   python -m gunpolaw --batch --deep      # 목록→본문→인용→상위법 본문(+deep=당시 시행본)까지 받아 findings 생성
+   # 증분: --incr(있으면 재사용, 신규만) 또는 --max-age 7(7일 이내 재사용)
+   ```
+   → `gunpolaw.db`에 ordinances/citations/findings/laws/law_versions/ord_law_links/law_change_log 적재.
+4. **코드·파서 수정 후 재적용** (API 0, DB 본문으로 재분석 — 판정 로직 바꿀 때마다):
+   ```bash
+   python -m gunpolaw --reparse
+   ```
+5. **서빙 / 내보내기**:
+   ```bash
+   python -m gunpolaw --serve 8765          # 로컬 대시보드
+   python -m gunpolaw --export-static site  # 정적 사이트(서버 없이 호스팅)
+   ```
+
+핵심 원칙: **원본 본문(ordinances.body_xml, laws, law_versions)은 보존**하고, 파생물(findings/citations/law_articles)만
+매 분석마다 재생성. 그래서 파서·판정 로직을 바꿔도 `--reparse`로 재수집 없이 반영된다(라이브 배치 == reparse 불변식).
+
+---
+
+## 4. 주요 CLI 명령
+
+```
+python -m gunpolaw <MST> [--deep]        조례 1건 분석
+python -m gunpolaw --batch [N] [--deep] [--incr|--max-age D]   전수 수집·분석
+python -m gunpolaw --reparse             DB body_xml로 재파싱(API 0)
+python -m gunpolaw --serve [포트]        대시보드 서빙(기본 8765)
+python -m gunpolaw --export-static [폴더]  정적 사이트 생성
+python -m gunpolaw --export-share [zip]  공유용 슬림 zip(코드+보기DB)
+python -m gunpolaw --report              저장 결과 집계
+python -m gunpolaw --changes [--all]     법령 개정 → 영향 조례 역추적
+python -m gunpolaw --ack <law_id> [--unack]   개정 검토완료 표시/해제
+python -m gunpolaw --recommend [--mst <MST>] [경로]   권고서 HTML 생성
+```
+
+---
+
+## 5. 법제처 OpenAPI 사용 현황 (moleg.py)
+
+모든 라이브 호출은 `moleg.call(endpoint, params)` 한 곳으로 흐른다. `www.law.go.kr/DRF/{endpoint}` + `OC=키`.
+
+| target | endpoint | 용도 |
+|---|---|---|
+| `ordin` | lawSearch.do | 자치법규 목록(org+sborg+knd) / lawService.do = 조례 본문 |
+| `lnkOrg` | lawSearch.do | 지자체 자치법규-법령 공식 연계(법령ID 보강 + 역추적 '연계' 리콜) |
+| `law` | lawSearch.do(해소)·lawService.do(본문) | 상위법령. 각 조문에 `<조문시행일자>` 있어 efYd 없이 시점 판정 |
+| `eflaw` | lawService.do·lawSearch.do | 시행일자별 법령본(deep=당시 시행본, history.py) |
+| `admrul` | lawSearch.do(정확매칭)·lawService.do(본문) | 행정규칙(훈령·예규·고시) — 법령 해소 실패 시 폴백 |
+| `admrulOldAndNew` | lawService.do | 행정규칙 신구조문 대비(개정 전/후) — admrul 개정 탐지 |
+
+지능형 검색(AIS/Lawbot): 자동 해소 실패 법령의 검토 항목에 `www.law.go.kr/LSW/ais/searchList.do?query=<법령명>`
+'🔍 지능형 검색' 링크 부착(사람이 유사·예고·폐지 법령까지 직접 확인).
+
+---
+
+## 6. 대한민국 법령 인용 표준 (파서가 준수)
+
+위계: 조(제N조) → 항(①②=제N항) → 호(1.=제N호) → 목(가.=**가목**, '제' 안 붙임).
+- 결합 인용은 **붙여쓰기**: `제1조제2항제3호가목`.
+- **항 생략(단일 조문)**: ① 없이 바로 호면 `제2조제3호`로 인용, 없는 제1항을 만들지 않음.
+- 위계 비가역성: 항→(호 없이)→목 불가. 항·목 나열(`제1항 및 제2항`, `나목 및 다목`)은 각 단위로 전개.
+
+---
+
+## 7. 배포 (두 리포)
+
+- **코드**(비공개): `github.com/sura140705-crypto/gunpolaw` (master).
+- **정적 사이트**(공개): `github.com/sura140705-crypto/gunpolaw-view` (main) → GitHub Pages.
+  ```bash
+  cd /c/gunpo_law && git add -A && git commit -m "..." && git push        # 코드
+  python -m gunpolaw --export-static site
+  cd site && git add -A && git commit -m "갱신" && git push               # 정적 사이트
+  ```
+  공개 주소: https://sura140705-crypto.github.io/gunpolaw-view/
+
+---
+
+## 8. 제약 / 주의
+
+- **stdlib only**(외부 라이브러리 금지), **SQLite 단일 DB**, **대시보드 단일 HTML**(외부 CDN·웹폰트 금지, 오프라인).
+- PDF는 라이브러리 없이 **브라우저 인쇄→PDF 저장**(권고서의 `document.title`이 `과-조례명(날짜)`로 세팅됨).
+- **보안**: OC 키는 env(`LAW_OC_KEY`)로만. 과거 커밋 히스토리에 키 흔적이 있어, 공개 전환 시 **히스토리 스크럽 + 키 재발급** 선행 필요(현재 비공개 전제).
+- 판정은 자동 분석이라 완전하지 않음 — 대시보드·권고서·CSV에 "담당자 최종 확인 필수" 고지 내장.
+
+## 9. 관련 문서
+
+- 상세 구조/설계: [`프로젝트_구조.md`](프로젝트_구조.md)
+- 공유 배포 안내: [`../테스트_공유_안내.md`](../테스트_공유_안내.md)
+- 과거 설계 문서(구식, 참고용): `archive/`

@@ -44,12 +44,12 @@ python -m gunpolaw --changes [--all]         # 법령 개정 → 영향 조례(�
 
 ## 배포 모델
 
-- **코드** = 이 (비공개) 리포지터리.
-- **데이터(DB)** = git에 넣지 않음(대용량 스냅샷, `.gitignore` 처리). `--export-share` 로 만든
-  **슬림 zip**(코드 + 보기전용 DB + 안내문, 약 2.4MB)을 **GitHub Release 첨부**로 배포.
-  테스터는 zip 하나만 받아 풀고 `python -m gunpolaw --serve` 하면 됩니다.
-- 슬림 DB는 상위법령 원문(`laws`/`law_versions`)을 비운 보기 전용입니다. 화면 결과는 전체 DB와
-  동일하며, `--reparse`(재분석)·`/admin` 정밀 재실행은 전체 DB(운영자)에서만 동작합니다.
+- **코드**(비공개): `sura140705-crypto/gunpolaw`. `gunpolaw.db`(전체 DB)가 함께 커밋돼 있어
+  받은 즉시 `--serve`/`--reparse` 가능. DB를 API로 새로 만들려면 → [`docs/HANDOVER.md`](docs/HANDOVER.md) §3.
+- **정적 사이트**(공개): `sura140705-crypto/gunpolaw-view` → `--export-static site` 결과를 푸시,
+  GitHub Pages로 서빙(https://sura140705-crypto.github.io/gunpolaw-view/).
+- 공유용 슬림 zip: `--export-share`(코드+보기전용 DB+안내문). 슬림 DB는 상위법령 원문을 비운
+  보기 전용이라 `--reparse`·`/admin` 정밀 재실행은 전체 DB에서만 동작.
 
 ## 보안 주의
 
@@ -59,8 +59,10 @@ python -m gunpolaw --changes [--all]         # 법령 개정 → 영향 조례(�
 
 ## 문서
 
-- 권위 설계서: [`docs/시스템_설계.md`](docs/시스템_설계.md)
-- 배포 안내(공유 zip 동봉): [`테스트_공유_안내.md`](테스트_공유_안내.md)
+- **인계·이어가기 가이드(권위)**: [`docs/HANDOVER.md`](docs/HANDOVER.md) — 구조·DB 재구성·배포·API·인용표준
+- 상세 구조: [`docs/프로젝트_구조.md`](docs/프로젝트_구조.md)
+- 배포 안내(공유 zip): [`테스트_공유_안내.md`](테스트_공유_안내.md)
+- 과거 설계 문서(구식, 참고용): [`docs/archive/`](docs/archive/)
 
 ## 개발
 

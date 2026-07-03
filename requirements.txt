@@ -1,5 +1,6 @@
-# 런타임 의존성 (필요 시 추가)
-
-# 개발 도구 (선택)
-# pytest
-# ruff
+# gunpolaw 런타임 의존성: 없음 (Python 3.9+ 표준 라이브러리만 사용).
+#   실행:      python -m gunpolaw --serve        (설치 불필요)
+#   DB 재구성: docs/HANDOVER.md §3 (환경변수 LAW_OC_KEY + --batch)
+#
+# 개발 도구(선택):
+# ruff        # 린트
