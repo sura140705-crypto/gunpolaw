@@ -12,8 +12,10 @@
 
 실행:  python -m gunpolaw --serve [포트]   (기본 8765)
 """
+import base64
 import html
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote
 
@@ -518,6 +520,17 @@ def serve(port=8765, db_path=db.DEFAULT_DB, host="127.0.0.1"):
     return 0
 
 
+# 지자체 마크(군포시 제공 자산) — 오프라인 제약상 헤더에 data-URI 로 인라인 임베드.
+# 패키지 동봉 PNG(작게 리사이즈됨)를 import 시 base64 로 읽어 __LOGO__ 자리에 치환.
+def _load_logo_b64():
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "gunpo_logo.png"), "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    except OSError:
+        return ""
+_LOGO_B64 = _load_logo_b64()
+
+
 # ---------- 대시보드(단일 HTML, 의존성 0) ----------
 DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="ko"><head><meta charset="utf-8">
@@ -725,6 +738,9 @@ a.lname:hover{text-decoration:underline;}
   background:linear-gradient(120deg,#13325b 0%,#1d4e89 60%,#2563eb 130%);color:#fff;
   border-radius:16px;padding:20px 24px;margin:0 0 16px;
   box-shadow:0 10px 26px rgba(19,50,91,.20);}
+.topbar-brand{display:flex;align-items:center;gap:13px;}
+.brand-logo{width:46px;height:46px;flex:0 0 auto;border-radius:10px;background:#fff;
+  padding:4px;box-shadow:0 2px 8px rgba(0,0,0,.15);}
 .topbar h1{font-size:22px;margin:0 0 6px;color:#fff;letter-spacing:-.3px;}
 .topbar-meta{font-size:12.5px;color:#c9d8ee;line-height:1.6;}
 .topbar-meta b{color:#fff;}
@@ -832,9 +848,12 @@ a.lname:hover{text-decoration:underline;}
 </style></head>
 <body><div class="wrap">
   <header class="topbar">
-    <div>
-      <h1>자치법규 정비 총괄 대시보드</h1>
-      <div class="topbar-meta" id="banner">불러오는 중…</div>
+    <div class="topbar-brand">
+      <img class="brand-logo" src="data:image/png;base64,__LOGO__" alt="군포시">
+      <div>
+        <h1>자치법규 정비 총괄 대시보드</h1>
+        <div class="topbar-meta" id="banner">불러오는 중…</div>
+      </div>
     </div>
     <a href="/admin" id="adminLink" class="topbar-admin">🔧 판정 근거 검사</a>
   </header>
@@ -1339,6 +1358,7 @@ init();
 </script>
 </body></html>
 """
+DASHBOARD_HTML = DASHBOARD_HTML.replace("__LOGO__", _LOGO_B64)
 
 
 # ---------- 관리자: 판정 근거 검사기(단일 HTML, 의존성 0) ----------
