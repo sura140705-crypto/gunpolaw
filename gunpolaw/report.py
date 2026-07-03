@@ -797,6 +797,38 @@ def model_to_csv(model, dept=""):
     return "﻿" + buf.getvalue()
 
 
+def grade_to_csv(db_path, grade):
+    """특정 등급(mechanical/review/check/format)의 전 부서 정비 항목 → CSV(BOM).
+
+    한 행 = 그 등급의 정비 항목 1건. 담당과별 정렬 — 의법팀이 등급별로 뽑아 각 부서에
+    정비확인 공문 발송, 서식정정은 법무 내부 처리에 바로 쓰도록. current(현행)는 제외.
+    """
+    conn = db.connect(db_path)
+    rows = conn.execute(
+        """SELECT o.dept, o.name AS ord_name, o.enforce_date AS ord_enf, o.mst,
+                  f.law_name, f.clause_label, f.clause_detail, f.change_type, f.severity,
+                  f.cite_naked, f.cite_spacing, f.ord_clause, f.ord_seq, f.detail
+           FROM findings f JOIN ordinances o ON o.mst = f.mst
+           ORDER BY o.dept, o.name, f.ord_seq""").fetchall()
+    conn.close()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["담당과", "조례", "조례시행일", "조례조문", "등급", "법령",
+                "상위법조문", "변경유형", "행동지시"])
+    for r in rows:
+        g = finding_grade(r["severity"], r["change_type"], r["cite_naked"] or 0,
+                          r["cite_spacing"] or 0)
+        if g != grade:
+            continue
+        clause_full = (r["clause_label"] or "") + (r["clause_detail"] or "")
+        w.writerow([
+            r["dept"] or "", r["ord_name"] or "", _fmtdate(r["ord_enf"]),
+            r["ord_clause"] or "", GRADE_META[grade]["label"], r["law_name"] or "",
+            clause_full, ("서식" if grade == "format" else r["change_type"] or ""),
+            action_text(dict(r))])
+    return "﻿" + buf.getvalue()
+
+
 def write_ordinance_report(mst, db_path=db.DEFAULT_DB, out_path=None, generated_at=None):
     """조례 1건 분석·정비 권고 HTML 파일 생성(담당자 확인·배포용). 현행 인용까지 포함.
 

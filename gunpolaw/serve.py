@@ -21,7 +21,7 @@ from . import db
 from .parse import parse_ordinance_body
 from .extract import normalize_text, is_local_admrul
 from .report import (GRADE_KEYS, GRADE_META, finding_grade, recommend_fragment,
-                     build_model, render_html, model_to_csv)
+                     build_model, render_html, model_to_csv, grade_to_csv)
 
 
 # ---------- DB 읽기(읽기전용 집계) ----------
@@ -427,6 +427,15 @@ class _Handler(BaseHTTPRequestHandler):
                 mst = (q.get("mst") or [""])[0]
                 fmt = (q.get("format") or ["html"])[0]
                 return self._ordinance_report(mst, fmt)
+            if path == "/api/grade_report":
+                q = parse_qs(u.query)
+                grade = (q.get("grade") or [""])[0]
+                if grade not in GRADE_KEYS or grade == "current":
+                    return self._json({"error": "grade(mechanical/review/check/format) 필요"}, status=400)
+                fn = quote(f"{GRADE_META[grade]['label']}_정비목록.csv")
+                return self._send(grade_to_csv(self.db_path, grade),
+                                  ctype="text/csv; charset=utf-8",
+                                  headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fn}"})
             return self._json({"error": "not found", "path": path}, status=404)
         except Exception as e:  # 서빙은 죽지 않게 — 오류도 JSON으로
             return self._json({"error": type(e).__name__, "detail": str(e)},
@@ -563,6 +572,9 @@ td .lawhit{display:block;font-size:11.5px;color:#2563eb;margin-top:2px;}
   background:rgba(255,255,255,.25);border-radius:999px;width:16px;height:16px;
   display:inline-flex;align-items:center;justify-content:center;font-size:13px;}
 .gradebadge .gx:hover{background:rgba(255,255,255,.45);}
+.gradebadge .gdl{color:#fff;font-weight:700;font-size:11px;text-decoration:none;
+  background:rgba(255,255,255,.25);border-radius:999px;padding:1px 8px;white-space:nowrap;}
+.gradebadge .gdl:hover{background:rgba(255,255,255,.45);}
 .layout{display:grid;grid-template-columns:1fr;gap:16px;}
 .panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13.5px;}
@@ -608,6 +620,10 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .empty{padding:40px 16px;color:#9ca3af;text-align:center;font-size:14px;}
 .btn{font-size:12px;padding:4px 10px;border:1px solid #d1d5db;border-radius:7px;
      background:#fff;cursor:pointer;color:#374151;}
+/* 분석 권고서(인쇄용) — 잘 안 보인다는 피드백 → 또렷한 색 버튼 */
+.btn.reportbtn{font-size:13px;font-weight:700;padding:6px 14px;background:#1e40af;color:#fff;
+     border-color:#1e40af;}
+.btn.reportbtn:hover{background:#1e3a8a;}
 .muted{color:#9ca3af;}
 /* 단계4 통합 상세: 좌 본문(하이라이트) | 우 권고 */
 .layout.detail-open #listPanel{display:none;}
@@ -615,7 +631,7 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .dsplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
 .dbody{padding:12px 16px;border-right:1px solid #eef0f3;max-height:76vh;overflow:auto;}
 .drec{padding:6px 14px;max-height:76vh;overflow:auto;}
-.dcolhd{font-size:12px;color:#6b7280;font-weight:600;margin:2px 0 8px;}
+.dcolhd{font-size:13px;color:#475569;font-weight:600;margin:2px 0 10px;line-height:1.55;}
 .drec .curbtn{margin:0 0 10px;width:100%;font-size:12.5px;padding:8px 12px;
   border:1px dashed #cbd5e1;border-radius:9px;background:#f8fafc;color:#475569;
   cursor:pointer;font-weight:600;transition:background .15s,border-color .15s;}
@@ -626,13 +642,13 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .art{margin:0 0 10px;scroll-margin-top:8px;border:1px solid #eef0f3;border-radius:9px;
      padding:9px 13px;background:#fff;}
 .art.cited{border-left:3px solid #2563eb;}
-.art.nocite{background:#fafafa;opacity:.62;}
-.art .ahd{font-size:12px;font-weight:700;color:#1e3a8a;margin-bottom:5px;
+.art.nocite{background:#fafafa;opacity:.78;}
+.art .ahd{font-size:13px;font-weight:700;color:#1e3a8a;margin-bottom:6px;
           display:flex;align-items:center;gap:7px;}
 .art.nocite .ahd{color:#9ca3af;}
 .art .ahd .ct{font-size:10.5px;font-weight:600;background:#dbeafe;color:#1e40af;
               border-radius:999px;padding:1px 8px;}
-.art .atext{font-size:13px;line-height:1.8;white-space:pre-wrap;color:#1f2937;
+.art .atext{font-size:15px;line-height:1.85;white-space:pre-wrap;color:#111827;
             word-break:keep-all;overflow-wrap:anywhere;}
 .dbody mark:focus-visible{outline:2px solid #f59e0b;outline-offset:1px;}
 mark.cite-law{background:#dbeafe;color:#1e3a8a;border-radius:3px;padding:0 2px;cursor:pointer;
@@ -828,6 +844,10 @@ a.lname:hover{text-decoration:underline;}
     <button class="backbtn homebtn" id="homeBtn" onclick="goHome()" title="첫페이지로 돌아가며 최신 데이터를 다시 불러옵니다">🔄 새로고침</button>
     <input type="search" id="searchBox" placeholder="🔍 조례명·인용 법령 검색" autocomplete="off">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
+    <select id="sortSel" title="조례 목록 정렬 기준">
+      <option value="action">정비 많은 순</option>
+      <option value="old">시행일 오래된 순</option>
+      <option value="new">시행일 최신 순</option></select>
     <label><input type="checkbox" id="actChk"> 정비 대상만</label>
     <span class="crumb" id="crumb"></span>
   </div>
@@ -840,7 +860,7 @@ a.lname:hover{text-decoration:underline;}
 const GO=[]; const GM={};          // grade_order / grade_meta
 const PCLS={mechanical:"p-mech",review:"p-rev",check:"p-chk",format:"p-fmt",current:"p-cur"};
 const STATIC=false;                // export-static 가 true 로 치환(서버 없이 정적 파일만)
-let OV=null, curDept="", curMst="", curQuery="", curGrade="", cssInjected=false, LOCALREFS={}, LAWREFS={};
+let OV=null, curDept="", curMst="", curQuery="", curGrade="", curSort="action", cssInjected=false, LOCALREFS={}, LAWREFS={};
 let _ALLORDS=null, DEPTIDX={};      // 정적: 전체 조례 캐시·담당과 인덱스(리포트 파일명)
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -865,6 +885,17 @@ function ordReportHref(mst){
 function deptReportHref(dept,fmt){
   return STATIC?`dept_report/${DEPTIDX[dept]}.${fmt}`
     :`/api/dept_report?dept=${encodeURIComponent(dept)}&format=${fmt}`;}
+function gradeReportHref(grade){    // 등급별 전 부서 정비목록 CSV(의법팀 배포용)
+  return STATIC?`grade_report/${grade}.csv`
+    :`/api/grade_report?grade=${encodeURIComponent(grade)}&format=csv`;}
+function sortOrds(list){            // 정렬 토글: 시행일 오래된/최신 순 or 정비 많은 순(기본)
+  const dt=o=>String(o.enforce_date||"").replace(/[^0-9]/g,"").slice(0,8);
+  const cnt=(a,b)=>(b.items_count-a.items_count)||String(a.name).localeCompare(b.name);
+  const L=list.slice();
+  if(curSort==="old")return L.sort((a,b)=>(dt(a)||"99999999").localeCompare(dt(b)||"99999999")||cnt(a,b));
+  if(curSort==="new")return L.sort((a,b)=>(dt(b)||"").localeCompare(dt(a)||"")||cnt(a,b));
+  return L.sort(cnt);
+}
 async function fetchOrds(opts){     // 조례 목록(라이브=서버 필터 / 정적=전체 캐시 클라 필터)
   const dept=opts.dept||"", q=(opts.q||"").trim(), action=!!opts.action;
   if(!STATIC){
@@ -1025,6 +1056,7 @@ function _ordCard(o,showDept){
 async function renderOrdList(){
   let list=await fetchOrds({dept:curDept, action:document.getElementById("actChk").checked});
   if(curGrade)list=list.filter(o=>o.grades&&o.grades[curGrade]>0);
+  list=sortOrds(list);
   const P=document.getElementById("listPanel");
   if(!list.length){P.innerHTML=`<div class="empty">해당 조건의 조례가 없습니다.</div>`;return;}
   P.innerHTML=`<div class="listhd">${esc(curDept)} · 조례 ${list.length}건</div><div class="olist">`
@@ -1035,6 +1067,7 @@ async function renderSearch(){
   // 자유검색(조례명 또는 인용 법령명 매치, 담당과 교차)
   let list=await fetchOrds({q:curQuery, action:document.getElementById("actChk").checked});
   if(curGrade)list=list.filter(o=>o.grades&&o.grades[curGrade]>0);
+  list=sortOrds(list);
   const P=document.getElementById("listPanel");
   if(!list.length){P.innerHTML=`<div class="empty">'${esc(curQuery)}' 검색 결과 없음.</div>`;return;}
   P.innerHTML=`<div class="listhd">검색 “${esc(curQuery)}” · ${list.length}건</div><div class="olist">`
@@ -1088,8 +1121,8 @@ async function selectOrd(mst){
   const right=r.found?r.html:`<div class="empty">정비 항목이 없습니다(현행 유지).</div>`;
   const dp=document.getElementById("detailPanel");
   dp.innerHTML=`<div class="dhd"><button class="btn" onclick="closeDetail()">← 목록</button>
-     <a class="btn" style="margin-left:8px;text-decoration:none" target="_blank"
-        href="${ordReportHref(mst)}">📄 분석 권고서(인쇄용)</a>
+     <a class="btn reportbtn" style="margin-left:8px;text-decoration:none" target="_blank"
+        href="${ordReportHref(mst)}">📄 분석 권고서(인쇄용) ↗</a>
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="mtabs"><button data-t="body" class="on">📄 조례 본문</button><button data-t="rec">🔧 검토 사항</button></div>
      <div class="dsplit show-body">
@@ -1240,7 +1273,7 @@ function clearGrade(){
 async function renderGradeList(){
   // 과 미선택 상태에서 등급 칩만으로 전체 조례를 필터(담당과 교차 표시)
   let list=await fetchOrds({action:document.getElementById("actChk").checked});
-  list=list.filter(o=>o.grades&&o.grades[curGrade]>0);
+  list=sortOrds(list.filter(o=>o.grades&&o.grades[curGrade]>0));
   const P=document.getElementById("listPanel");
   const m=GM[curGrade]||{emoji:"",label:curGrade};
   if(!list.length){P.innerHTML=`<div class="empty">${m.emoji} ${esc(m.label)} 대상 조례가 없습니다.</div>`;return;}
@@ -1252,6 +1285,7 @@ function renderCrumb(){
   const c=document.getElementById("crumb");
   const m=GM[curGrade];
   const gb=curGrade&&m?`<span class="gradebadge g-${gcls(curGrade)}">${m.emoji} ${esc(m.label)}`
+    +`<a class="gdl" href="${gradeReportHref(curGrade)}" download title="이 등급 전 부서 정비목록 CSV 다운로드(엑셀)">⬇ CSV</a>`
     +`<a class="gx" onclick="clearGrade()" title="등급 필터 해제">×</a></span>`:"";
   if(curQuery){c.innerHTML=`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`+gb;return;}
   if(!curDept){c.innerHTML=gb;return;}
@@ -1287,6 +1321,9 @@ async function init(){
   renderBanner(); renderHero(); fillDeptSelect(); renderChanges();
   document.getElementById("deptSel").onchange=e=>selectDept(e.target.value);
   document.getElementById("actChk").onchange=()=>{
+    if(curQuery)renderSearch();else if(curDept)renderOrdList();
+    else if(curGrade)renderGradeList();};
+  document.getElementById("sortSel").onchange=e=>{curSort=e.target.value;
     if(curQuery)renderSearch();else if(curDept)renderOrdList();
     else if(curGrade)renderGradeList();};
   const sb=document.getElementById("searchBox");
@@ -1512,7 +1549,7 @@ def export_static(out_dir="site", db_path=db.DEFAULT_DB, verbose=True):
     from .batch import law_changes_report
 
     out = os.path.abspath(out_dir)
-    for sub in ("", "api", "api/ordinance", "report", "dept_report"):
+    for sub in ("", "api", "api/ordinance", "report", "dept_report", "grade_report"):
         os.makedirs(os.path.join(out, sub), exist_ok=True)
 
     def w(path, text):
@@ -1557,6 +1594,12 @@ def export_static(out_dir="site", db_path=db.DEFAULT_DB, verbose=True):
         m = build_model(db_path, dept=d["dept"])
         w(f"dept_report/{i}.html", render_html(m, title=f"{d['dept']} 자치법규 정비 권고"))
         w(f"dept_report/{i}.csv", model_to_csv(m, dept=d["dept"]))
+
+    # 등급별 전 부서 정비목록 CSV (의법팀이 등급별로 뽑아 부서 공문 발송·법무 내부 정비)
+    for g in GRADE_KEYS:
+        if g == "current":
+            continue
+        w(f"grade_report/{g}.csv", grade_to_csv(db_path, g))
 
     nfiles = sum(len(fs) for _, _, fs in os.walk(out))
     if verbose:
