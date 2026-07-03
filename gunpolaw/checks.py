@@ -127,11 +127,12 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id="", su
             ad, od2 = _date(now), _date(ord_enforce)
             diff = (ad - od2).days if (ad and od2) else 0
             gap = f"개정 {was}→{now}" if (was and was != now) else f"개정일 {now}"
+            head = f"인용한 {det}" if det else "인용 조항"
             return {**base, "category": "timing", "severity": "review",
-                    "detail": f"인용 조항{det}이 조례 시행({ord_enforce}) 이후 개정됨 "
+                    "detail": f"{head}{_josa(head, '이', '가')} 조례 시행({ord_enforce}) 이후 개정됨 "
                               f"({gap}, {diff}일 차) — 내용 변경, 검토 필요"}
         return {**base, "category": "current", "severity": "current",
-                "detail": f"해당 조{det} 최종 개정일({now})이 조례 시행 이전 — 현행 정합"}
+                "detail": f"인용 {det or '조항'} 최종 개정일({now})이 조례 시행 이전 — 현행 정합"}
 
     # 호/목으로 좁혔는데 그 단위엔 개정 태그가 없지만 조 전체는 조례 이후 개정된 경우 —
     # 이 호의 변경 여부는 당시 시행본 없이 확정 불가 → '내용변경' 오탐 대신 '확인 필요'.
@@ -140,7 +141,7 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id="", su
         if art_now is not None and art_after:
             base["clause_enforce"] = art_now
             return {**base, "category": "timing", "severity": "check", "change_type": "호미확인",
-                    "detail": f"{clause_label}은 조례 시행 이후 개정(개정일 {art_now})됐으나 "
+                    "detail": f"{clause_label}{_josa(clause_label, '은', '는')} 조례 시행 이후 개정(개정일 {art_now})됐으나 "
                               f"인용한 {det}엔 개정 표기 없음 — 이 호의 변경 여부 확인 필요"}
 
     # 태그 없음: 조문시행일자로 전부개정 가능성만 보조 판정(확정 변경엔 미포함)
@@ -156,6 +157,16 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id="", su
 
 def _norm(s):
     return re.sub(r"\s+", "", s or "")
+
+
+def _josa(word, jong, nojong):
+    """받침 유무로 조사 선택(끝이 한글·종성 있으면 jong, 없으면 nojong; 비한글은 nojong).
+    예: _josa('제2조','은','는')→'는', _josa('제3호','이','가')→'가', _josa('가목','이','가')→'이'."""
+    if word:
+        ch = word[-1]
+        if "가" <= ch <= "힣":
+            return jong if (ord(ch) - 0xAC00) % 28 else nojong
+    return nojong
 
 
 # ---------- 인용된 항·호·목만 잘라내기(호/목 단위 비교) ----------
@@ -249,7 +260,7 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
                             "detail": f"{clause_label} 내용이 현행 {lbl} 로 이동(번호 변경) — 검토 필요"}
             return {**base, "category": "status", "severity": "review",
                     "change_type": "삭제", "evidence": old["content"][:160],
-                    "detail": f"{clause_label} 가 현행 법령에서 사라짐(삭제/통합 의심) — 검토 필요"}
+                    "detail": f"{clause_label}{_josa(clause_label, '이', '가')} 현행 법령에서 사라짐(삭제/통합 의심) — 검토 필요"}
         return {**base, "category": "status", "severity": "check", "change_type": "미확인",
                 "detail": f"{clause_label} 를 당시·현행 어디서도 못 찾음 — 확인 필요"}
 
@@ -277,25 +288,26 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
         if old_sub is not None and cur_sub is not None:
             det = subspec_label(hang, ho, mok)
             base["clause_detail"] = det
+            cl = f"{clause_label}{det}"
             if _norm(old_sub) == _norm(cur_sub):
                 return {**base, "category": "current", "severity": "current",
                         "change_type": "동일",
-                        "detail": f"{clause_label}{det} 는 조례 시행 이후 변경 없음"
+                        "detail": f"{cl}{_josa(cl, '은', '는')} 조례 시행 이후 변경 없음"
                                   f"(인용한 호·목 동일) — 현행 정합"}
             return {**base, "severity": "review", "change_type": "내용변경",
                     "evidence": f"[당시] {old_sub[:EVIDENCE_CHARS]}\n[현행] {cur_sub[:EVIDENCE_CHARS]}",
-                    "detail": f"{clause_label}{det} 가 조례 시행({_ymd(ord_enforce)}) 이후 개정됨 — 검토 필요"}
+                    "detail": f"{cl}{_josa(cl, '이', '가')} 조례 시행({_ymd(ord_enforce)}) 이후 개정됨 — 검토 필요"}
 
     if amended_after is True:
         gap = f" (개정 {was}→{now})" if (was and now and was != now) else ""
         return {**base, "severity": "review", "change_type": "내용변경",
                 "evidence": _evidence(),
-                "detail": f"{clause_label} 가 조례 시행({_ymd(ord_enforce)}) 이후 개정됨{gap} — 검토 필요"}
+                "detail": f"{clause_label}{_josa(clause_label, '이', '가')} 조례 시행({_ymd(ord_enforce)}) 이후 개정됨{gap} — 검토 필요"}
 
     if amended_after is False:
         # 조례 시행 이후 개정 이력 없음 → 현행유지(시행본 선택 오차로 인한 가짜 변경 제거)
         return {**base, "category": "current", "severity": "current", "change_type": "동일",
-                "detail": f"{clause_label} 는 조례 시행 이후 개정 이력 없음(최종 개정 {now}) — 현행 정합"}
+                "detail": f"{clause_label}{_josa(clause_label, '은', '는')} 조례 시행 이후 개정 이력 없음(최종 개정 {now}) — 현행 정합"}
 
     # 개정 태그 없음 → 당시/현행 본문 직접 비교로 폴백
     if old:
@@ -309,7 +321,7 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
     # 제정 당시 시행본엔 없던 조문이나 현행엔 존재하고(예고법령 반영 등) 개정 태그도 없음 —
     # '당시 어땠는지'는 무의미하다. 현 시점에 유효하면 정비 대상 아님 → 현행 정합(확인 불필요).
     return {**base, "category": "current", "severity": "current", "change_type": "동일",
-            "detail": f"{clause_label} 는 현행 법령에 존재(제정 당시본엔 없었으나 현재 유효) — 현행 정합"}
+            "detail": f"{clause_label}{_josa(clause_label, '은', '는')} 현행 법령에 존재(제정 당시본엔 없었으나 현재 유효) — 현행 정합"}
 
 
 SEV_ORDER = {"mechanical": 0, "review": 1, "check": 2, "current": 3}

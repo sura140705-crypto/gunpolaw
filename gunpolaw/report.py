@@ -18,6 +18,7 @@ import html
 import io
 import re
 from datetime import datetime
+from urllib.parse import quote
 
 from . import db
 from .parse import parse_ordinance_body
@@ -233,8 +234,8 @@ def action_text(f):
             return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
         if ct == "호미확인":
             cd = _get(f, "clause_detail") or ""
-            return (f"「{law}」 {clause}{cd} 변경 여부 확인 — {clause}은 조례 시행 이후 개정됐으나 "
-                    f"인용한 {cd or '해당 호'}엔 개정 표기가 없어 변경 여부 불명확({loc})")
+            return (f"「{law}」 {clause}{cd} 변경 여부 확인 — {clause}{_josa(clause, '은', '는')} 조례 시행 이후 "
+                    f"개정됐으나 인용한 {cd or '해당 호'}엔 개정 표기가 없어 변경 여부 불명확({loc})")
         return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
 
     return _base() + extra
@@ -497,6 +498,9 @@ details.citem > .diff { margin:6px 10px 10px; }
 details.citem.focus { box-shadow:inset 3px 0 0 var(--navy2); }
 .item .law { font-size:13px; font-weight:600; color:#374151; }
 .item .law .ki { font-weight:400; font-size:12px; margin-right:1px; }
+.item a.ais { font-size:11px; font-weight:600; color:#0369a1; background:#e0f2fe;
+    border-radius:6px; padding:1px 7px; margin-left:6px; text-decoration:none; white-space:nowrap; }
+.item a.ais:hover { background:#bae6fd; }
 .item .act { font-size:13.5px; margin:3px 0; color:var(--ink); }
 /* 검토 문안 내 정정 강조 — 현재 표기(회색) → 정정 표기(초록), 삽입 「」는 진한 초록 */
 .act .fx-old { background:#f1f5f9; color:#64748b; border-radius:3px; padding:0 3px; }
@@ -653,8 +657,15 @@ def _item_block(it, collapsible=False):
             badges += '<span class="tag t-naked">「」누락</span>'
         if it.get("cite_spacing"):
             badges += '<span class="tag t-space">띄어쓰기</span>'
+    # 우리가 자동 해소 못 한 법령(법령미해결·미확인·자체규칙 등)은 법제처 지능형 검색으로 유도 —
+    # 정확매칭 실패해도 사람이 이 링크로 유사·예고·폐지 법령까지 직접 확인.
+    ais = ""
+    if not it.get("law_id"):
+        ais = (f'<a class="ais" target="_blank" rel="noopener"'
+               f' href="https://www.law.go.kr/LSW/ais/searchList.do?query={quote(it.get("law_name") or "")}"'
+               f' title="법제처 지능형 법령검색(Lawbot)에서 이 법령 찾기 — 유사·예고·폐지 포함">🔍 지능형 검색</a>')
     head = (f'<span class="tag {tag_cls}">{_esc(tag)}</span>{badges}'
-            f'<span class="law">{law}</span>')
+            f'<span class="law">{law}</span>{ais}')
     body = (f'<div class="act">{it.get("action_html") or _esc(it["action"])}</div>'
             f'{_basis_line(it)}{_evidence_block(it)}')
     if collapsible:
