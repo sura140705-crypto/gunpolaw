@@ -442,6 +442,9 @@ body.report { font-family: "Malgun Gothic","맑은 고딕",system-ui,sans-serif;
 .page h1 { font-size:22px; line-height:1.34; margin:0; color:var(--navy);
      font-weight:700; letter-spacing:-.3px; }
 .page .sub { color:var(--muted); font-size:12.5px; margin-top:7px; }
+.page .docnote { background:#fff7ed; border:1px solid #fed7aa; border-left:4px solid #f59e0b;
+  color:#92400e; font-size:12.5px; line-height:1.6; border-radius:8px; padding:10px 14px; margin:0 0 18px; }
+.page .docnote b { color:#b45309; }
 .page .cards { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 20px; }
 .page .card { flex:1 1 138px; border:1px solid var(--line); border-top:3px solid var(--chk);
         border-radius:6px; padding:12px 15px; }
@@ -767,9 +770,11 @@ def render_html(model, generated_at="", title="자치법규 정비 권고서"):
         f"<title>{_esc(title)}</title><style>{_CSS}</style></head><body class=\"report\">"
         f'<div class="page"><div class="dochd"><div class="kicker">자치법규 정비 점검</div>'
         f'<h1>{_esc(title)}</h1><div class="sub">{sub}</div></div>'
+        '<div class="docnote">⚠️ 이 권고서는 인용 조항의 시점·내용 비교로 <b>자동 생성된 초안으로 '
+        '완전하지 않습니다.</b> 누락·오탐이 있을 수 있으므로, 정비 여부는 <b>반드시 담당자가 조례 원문과 '
+        '현행 법령을 직접 확인해 최종 판단</b>해야 합니다.</div>'
         f'<div class="cards">{cards}</div>{legend}{blocks}'
-        '<footer>본 권고서는 인용 조항의 시점·내용 비교로 자동 생성된 초안이며, '
-        '최종 개정 판단은 담당 부서의 검토를 따릅니다.</footer>'
+        '<footer>본 권고서는 자동 생성된 초안이며, 최종 개정 판단의 책임은 담당 부서의 검토에 있습니다.</footer>'
         "</div></body></html>")
 
 
@@ -811,6 +816,9 @@ def model_to_csv(model, dept=""):
                 ("서식" if it["grade"] == "format" else it.get("change_type", "")),
                 it.get("action", ""),
                 _fmtdate(it.get("old_enforce")), _fmtdate(it.get("clause_enforce"))])
+    w.writerow([])
+    w.writerow(["※ 자동 분석 초안 — 누락·오탐이 있을 수 있음. 정비 여부는 담당자가 "
+                "조례 원문과 현행 법령을 직접 확인해 최종 판단하시기 바랍니다."])
     return "﻿" + buf.getvalue()
 
 
@@ -843,6 +851,9 @@ def grade_to_csv(db_path, grade):
             r["ord_clause"] or "", GRADE_META[grade]["label"], r["law_name"] or "",
             clause_full, ("서식" if grade == "format" else r["change_type"] or ""),
             action_text(dict(r))])
+    w.writerow([])
+    w.writerow(["※ 자동 분석 초안 — 누락·오탐이 있을 수 있음. 정비 여부는 담당자가 "
+                "조례 원문과 현행 법령을 직접 확인해 최종 판단하시기 바랍니다."])
     return "﻿" + buf.getvalue()
 
 

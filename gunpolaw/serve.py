@@ -748,6 +748,9 @@ a.lname:hover{text-decoration:underline;}
 .topbar-admin{font-size:12.5px;color:#e8f0fb;text-decoration:none;white-space:nowrap;
   background:rgba(255,255,255,.14);padding:7px 13px;border-radius:9px;border:1px solid rgba(255,255,255,.14);}
 .topbar-admin:hover{background:rgba(255,255,255,.26);}
+.disclaimer{background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f59e0b;
+  color:#92400e;font-size:12.5px;line-height:1.55;border-radius:9px;padding:9px 14px;margin:0 0 16px;}
+.disclaimer b{color:#b45309;}
 
 /* ============ KPI 카드 그리드 ============ */
 .kpis{display:grid;grid-template-columns:1.7fr 3.6fr;gap:12px;margin:0 0 18px;align-items:stretch;}
@@ -857,6 +860,8 @@ a.lname:hover{text-decoration:underline;}
     </div>
     <a href="/admin" id="adminLink" class="topbar-admin">🔧 판정 근거 검사</a>
   </header>
+  <div class="disclaimer">⚠️ 이 판정은 <b>자동 분석 결과로 완전하지 않습니다.</b> 누락·오탐이 있을 수 있으니,
+     정비 여부는 <b>반드시 담당자가 조례 원문과 현행 법령을 직접 확인해 최종 판단</b>하세요.</div>
   <div class="kpis" id="hero"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
