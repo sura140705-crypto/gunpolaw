@@ -763,12 +763,12 @@ a.lname:hover{text-decoration:underline;}
   transition:box-shadow .15s,transform .15s;}
 .kpi:hover{box-shadow:0 6px 18px rgba(16,24,40,.09);transform:translateY(-1px);}
 .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#e5e7eb;}
-.kpi .kpi-ic{font-size:17px;line-height:1;}
-.kpi .kpi-n{font-size:27px;font-weight:800;color:#111827;line-height:1;margin-top:8px;
+.kpi .kpi-ic{font-size:19px;line-height:1;}
+.kpi .kpi-n{font-size:31px;font-weight:800;color:#111827;line-height:1;margin-top:8px;
   font-variant-numeric:tabular-nums;}
-.kpi .kpi-n small{font-size:14px;font-weight:700;color:#6b7280;margin-left:2px;}
-.kpi .kpi-l{font-size:12px;color:#374151;font-weight:700;margin-top:6px;}
-.kpi .kpi-d{font-size:11px;color:#9ca3af;margin-top:3px;line-height:1.35;word-break:keep-all;}
+.kpi .kpi-n small{font-size:15px;font-weight:700;color:#6b7280;margin-left:2px;}
+.kpi .kpi-l{font-size:13px;color:#374151;font-weight:700;margin-top:6px;}
+.kpi .kpi-d{font-size:11.5px;color:#9ca3af;margin-top:3px;line-height:1.4;word-break:keep-all;}
 .kpi.k-mech::before{background:var(--mech);} .kpi.k-mech .kpi-n{color:var(--mech);}
 .kpi.k-rev::before{background:var(--rev);}   .kpi.k-rev .kpi-n{color:var(--rev);}
 .kpi.k-chk::before{background:var(--chk);}    .kpi.k-chk .kpi-n{color:var(--chk);}
@@ -780,16 +780,16 @@ a.lname:hover{text-decoration:underline;}
 /* 주 KPI(정비 필요 조례) — 강조 */
 .kpi.primary{background:linear-gradient(135deg,#fff 55%,#fff7ed);border-color:#fcd9a8;}
 .kpi.primary::before{background:linear-gradient(#f59e0b,#d97706);width:5px;}
-.kpi.primary .kpi-l{font-size:12.5px;color:#92400e;}
-.kpi.primary .kpi-n{font-size:44px;color:#b45309;margin-top:4px;}
-.kpi.primary .kpi-sub{font-size:12.5px;color:#78716c;margin-top:6px;}
+.kpi.primary .kpi-l{font-size:13.5px;color:#92400e;}
+.kpi.primary .kpi-n{font-size:48px;color:#b45309;margin-top:4px;}
+.kpi.primary .kpi-sub{font-size:13.5px;color:#78716c;margin-top:6px;}
 .kpi.primary .kpi-sub b{color:#b45309;}
 .hero-bar{height:9px;border-radius:99px;background:#fde7d0;overflow:hidden;margin:10px 0 2px;}
 .hero-bar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);border-radius:99px;
   transition:width .5s ease;}
 @media(max-width:920px){.kpis{grid-template-columns:1fr;}}
 @media(max-width:520px){.topbar{flex-direction:column;}
-  .kpi .kpi-n{font-size:23px;} .kpi.primary .kpi-n{font-size:38px;}}
+  .kpi .kpi-n{font-size:26px;} .kpi.primary .kpi-n{font-size:41px;}}
 
 /* ============ 소관업무 편 카드(아코디언) ============ */
 .plist{display:flex;flex-direction:column;gap:10px;}
