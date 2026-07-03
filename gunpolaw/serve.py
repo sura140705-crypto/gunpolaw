@@ -487,13 +487,16 @@ class _Handler(BaseHTTPRequestHandler):
         if not mst:
             return self._json({"error": "mst 필요"}, status=400)
         model = build_model(self.db_path, mst=mst, include_current=True)
-        name = model["ordinances"][0]["name"] if model["ordinances"] else mst
+        o0 = model["ordinances"][0] if model["ordinances"] else {}
+        name = o0.get("name") or mst
+        dept = o0.get("dept") or ""
         if fmt == "csv":
             fn = quote(f"{name}_정비권고.csv")
             return self._send(
-                model_to_csv(model), ctype="text/csv; charset=utf-8",
+                model_to_csv(model, dept=dept), ctype="text/csv; charset=utf-8",
                 headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fn}"})
-        htmltext = render_html(model, title=f"{name} — 정비 권고(분석 결과)")
+        pdf_name = f"{dept}-{name}" if dept else name   # PDF 저장 기본 파일명(과-조례명(날짜))
+        htmltext = render_html(model, title=f"{name} — 정비 권고(분석 결과)", pdf_name=pdf_name)
         return self._send(htmltext, ctype="text/html; charset=utf-8")
 
     do_HEAD = do_GET
@@ -739,8 +742,8 @@ a.lname:hover{text-decoration:underline;}
   border-radius:16px;padding:20px 24px;margin:0 0 16px;
   box-shadow:0 10px 26px rgba(19,50,91,.20);}
 .topbar-brand{display:flex;align-items:center;gap:13px;}
-.brand-logo{width:46px;height:46px;flex:0 0 auto;border-radius:10px;background:#fff;
-  padding:4px;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.brand-logo{width:54px;height:54px;flex:0 0 auto;border-radius:10px;background:#fff;
+  padding:1px;object-fit:contain;box-shadow:0 2px 8px rgba(0,0,0,.15);}
 .topbar h1{font-size:22px;margin:0 0 6px;color:#fff;letter-spacing:-.3px;}
 .topbar-meta{font-size:12.5px;color:#c9d8ee;line-height:1.6;}
 .topbar-meta b{color:#fff;}

@@ -308,7 +308,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                   {sel('ord_clause')}, {sel('ord_seq', '999999')}, f.detail, f.evidence,
                   f.ord_enforce, {sel('old_enforce')}, f.clause_enforce,
                   {sel('cite_naked', '0')}, {sel('cite_spacing', '0')},
-                  o.name AS ord_name, o.enforce_date AS ord_enforce_date
+                  o.name AS ord_name, o.enforce_date AS ord_enforce_date, o.dept AS ord_dept
            FROM findings f LEFT JOIN ordinances o ON o.mst = f.mst
            {where}
            ORDER BY f.law_name, f.clause_label""", args
@@ -355,6 +355,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
         o = by_mst.setdefault(r["mst"], {
             "mst": r["mst"],
             "name": r["ord_name"] or "(조례명 미상)",
+            "dept": r["ord_dept"] or "",
             "enforce_date": r["ord_enforce_date"] or r["ord_enforce"] or "",
             "grades": {k: 0 for k in GRADE_KEYS},
             "items": [],
@@ -556,8 +557,19 @@ mark.pt { background:#fee2e2; color:#dc2626; font-weight:700; border-radius:2px;
           padding:0 2px; cursor:help; }
 .page footer { color:#9aa3af; font-size:11.5px; margin-top:34px; padding-top:14px;
          border-top:1px solid var(--line); text-align:center; }
+/* 권고서 상단 컨트롤(약식 토글·PDF 저장) — 인쇄엔 안 나옴 */
+.rptbar { display:flex; gap:8px; margin:0 0 16px; flex-wrap:wrap; }
+.rbtn { font-size:13px; font-weight:700; padding:7px 14px; border-radius:8px; cursor:pointer;
+  border:1px solid #cbd5e1; background:#fff; color:#374151; }
+.rbtn:hover { background:#f1f5f9; }
+.rbtn-pdf { background:#1e40af; color:#fff; border-color:#1e40af; }
+.rbtn-pdf:hover { background:#1e3a8a; }
+/* 약식 보기 — 정비 대상 없는 조문·현행유지 항목 숨김 */
+body.brief .artsec-clean { display:none; }
+body.brief .item-cur { display:none; }
 @media print {
   @page { size:A4; margin:16mm; }
+  .no-print { display:none !important; }
   body { background:#fff; }
   .page { max-width:none; margin:0; padding:0; border-top:none; box-shadow:none; }
   .ord, .card { border-color:#c4cbd4; }
@@ -685,7 +697,8 @@ def _item_block(it, collapsible=False):
                 f' data-law="{_esc(it["law_name"])}"'
                 f' data-clause="{_esc(it["clause_label"])}">'
                 f'<summary class="iline">{head}</summary>{body}</details>')
-    return (f'<div class="item"><div class="iline">{head}</div>{body}</div>')
+    cls = "item item-cur" if it["grade"] == "current" else "item"
+    return (f'<div class="{cls}"><div class="iline">{head}</div>{body}</div>')
 
 
 def _ord_block(o, collapsible=False):
@@ -738,19 +751,22 @@ def _ord_block(o, collapsible=False):
                 for g in uniq)
         else:
             status = '<span class="secst st-ok">✅ 검토완료</span>'
+        seccls = "artsec" if act else "artsec artsec-clean"   # 정비 대상 없는 조문 = 약식에서 숨김
         secs_html.append(
-            f'<div class="artsec" data-oc="{_esc(art)}">'
+            f'<div class="{seccls}" data-oc="{_esc(art)}">'
             f'<div class="arthd">조례 {_esc(art)}{status}</div>{ord_src}{body}</div>')
 
+    dept = o.get("dept") or ""
+    deptline = f'담당과 <b>{_esc(dept)}</b> · ' if dept else ""
     return (
         f'<div class="ord"><h2>{_esc(o["name"])}</h2>'
-        f'<div class="meta">시행 {_fmtdate(o["enforce_date"])} · 정비 항목 {len(o["items"])}건 · '
+        f'<div class="meta">{deptline}시행 {_fmtdate(o["enforce_date"])} · 정비 항목 {len(o["items"])}건 · '
         f'조례 조문 순서로 정렬</div>'
         f'<div class="badges">{"".join(badges)}</div>'
         f'{"".join(secs_html)}</div>')
 
 
-def render_html(model, generated_at="", title="자치법규 정비 권고서"):
+def render_html(model, generated_at="", title="자치법규 정비 권고서", pdf_name=None):
     s = model["summary"]
     cards = (
         _card(s, "mechanical", "조문번호 정정") + _card(s, "review", "검토 필요") +
@@ -764,18 +780,37 @@ def render_html(model, generated_at="", title="자치법규 정비 권고서"):
         '<span><mark class="cite-law">상위법령</mark></span>'
         '<span><mark class="cite-local">타 자치법규</mark></span>'
         '<span><mark class="cite-naked">꺽쇠(「」) 누락</mark></span></div>')
+    # 약식(현행유지 제외) 토글 + PDF 저장(브라우저 인쇄→PDF, 파일명=과-조례명(날짜)). no-print.
+    pdf_base = _esc(pdf_name or title)
+    bar = (
+        '<div class="rptbar no-print">'
+        '<button type="button" class="rbtn" id="briefBtn" onclick="toggleBrief()">'
+        '📄 약식 보기(현행유지 제외)</button>'
+        '<button type="button" class="rbtn rbtn-pdf" onclick="savePdf()">🖨 PDF 저장</button>'
+        '</div>')
+    script = (
+        "<script>"
+        f'var PDF_BASE="{pdf_base}";'
+        "function toggleBrief(){var b=document.body.classList.toggle('brief');"
+        "document.getElementById('briefBtn').textContent="
+        "b?'📑 전체 보기(현행유지 포함)':'📄 약식 보기(현행유지 제외)';}"
+        "function savePdf(){var d=new Date(),z=n=>('0'+n).slice(-2),"
+        "s=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate()),o=document.title;"
+        "document.title=PDF_BASE+'('+s+')';window.print();"
+        "setTimeout(function(){document.title=o;},600);}"
+        "</script>")
     return (
         "<!DOCTYPE html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>{_esc(title)}</title><style>{_CSS}</style></head><body class=\"report\">"
-        f'<div class="page"><div class="dochd"><div class="kicker">자치법규 정비 점검</div>'
+        f'<div class="page">{bar}<div class="dochd"><div class="kicker">자치법규 정비 점검</div>'
         f'<h1>{_esc(title)}</h1><div class="sub">{sub}</div></div>'
         '<div class="docnote">⚠️ 이 권고서는 인용 조항의 시점·내용 비교로 <b>자동 생성된 초안으로 '
         '완전하지 않습니다.</b> 누락·오탐이 있을 수 있으므로, 정비 여부는 <b>반드시 담당자가 조례 원문과 '
         '현행 법령을 직접 확인해 최종 판단</b>해야 합니다.</div>'
         f'<div class="cards">{cards}</div>{legend}{blocks}'
         '<footer>본 권고서는 자동 생성된 초안이며, 최종 개정 판단의 책임은 담당 부서의 검토에 있습니다.</footer>'
-        "</div></body></html>")
+        f'{script}</div></body></html>')
 
 
 def recommend_fragment(mst, db_path=db.DEFAULT_DB, collapsible=False):
