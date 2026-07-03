@@ -8,7 +8,7 @@ findings(변경 탐지 결과)를 담당자가 바로 결재·정비에 쓰는 "
 
 등급(grade) — finding의 (severity, change_type)에서 도출:
   mechanical 🔧 기계적 개정 : 인용 조문번호만 정정(번호이동 등)
-  review     ⚠️ 실질 검토   : 내용변경·삭제 — 조문 정비 검토
+  review     ⚠️ 검토 필요   : 내용변경·삭제 — 조문 정비 검토
   check      📋 확인        : 소재 미확인·법령미해결 — 사람 확인
   current    ✅ 현행 유지   : 변경 없음(권고서 본문엔 집계만)
 """
@@ -28,10 +28,10 @@ from .extract import normalize_text, is_local_admrul
 GRADE_META = {
     "mechanical": {"order": 0, "emoji": "🔧", "label": "조문번호 정정", "cls": "g-mech",
                    "desc": "내용 동일·번호만 이동"},
-    "review":     {"order": 1, "emoji": "⚠️", "label": "실질 검토",   "cls": "g-rev",
+    "review":     {"order": 1, "emoji": "⚠️", "label": "검토 필요",   "cls": "g-rev",
                    "desc": "상위법 내용이 바뀜"},
     "check":      {"order": 2, "emoji": "📋", "label": "확인 필요",     "cls": "g-chk",
-                   "desc": "소재 미확인"},
+                   "desc": "자동 대조 불가 · 직접 확인"},
     "format":     {"order": 3, "emoji": "📐", "label": "서식 정정",     "cls": "g-fmt",
                    "desc": "「」·띄어쓰기 등 표기"},
     "current":    {"order": 4, "emoji": "✅", "label": "현행 유지",     "cls": "g-cur",
@@ -221,9 +221,14 @@ def action_text(f):
         # check
         if ct == "지자체행정규칙":
             return (f"「{law}」는 지자체 자체 행정규칙 — 국가법령정보에 없어 자동 대조 불가. "
-                    f"{loc} 인용을 최신 원문과 수기 대조")
+                    f"자치법규정보시스템(ELIS, www.elis.go.kr)에서 최신 원문을 직접 확인해 "
+                    f"{loc} 인용을 정비")
         if ct == "법령미해결":
-            return f"「{law}」 제명변경·폐지 여부를 확인하고 {loc}의 인용 법령명을 정정"
+            # 자동 대조는 국가법령정보 '법령'만 수집 — 중앙부처 행정규칙(훈령·예규·고시·규정)은
+            # 국가법령정보센터 '행정규칙'에 있으나 매칭 안 됨. 폐지·개명·오기, 자체 규칙 가능성도.
+            return (f"「{law}」 자동 매칭 실패 — 국가법령정보센터(법령·행정규칙)에서 현행 여부·명칭 확인. "
+                    f"중앙부처 행정규칙(훈령·예규·규정)이거나 제명변경·폐지일 수 있고, "
+                    f"지자체 자체 규칙이면 자치법규정보시스템(ELIS)에서 확인 — {loc} 인용 정비")
         if ct == "당시부재":
             return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
         return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
@@ -713,7 +718,7 @@ def _ord_block(o, collapsible=False):
 def render_html(model, generated_at="", title="자치법규 정비 권고서"):
     s = model["summary"]
     cards = (
-        _card(s, "mechanical", "조문번호 정정") + _card(s, "review", "실질 검토") +
+        _card(s, "mechanical", "조문번호 정정") + _card(s, "review", "검토 필요") +
         _card(s, "check", "확인 필요") + _card(s, "format", "서식 정정") +
         _card(s, "current", "현행 유지"))
     blocks = "".join(_ord_block(o) for o in model["ordinances"])

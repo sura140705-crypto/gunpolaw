@@ -8,7 +8,7 @@ A단계 결론 반영:
 
 등급(severity):
   mechanical : 🔧 기계적 개정(번호 이동 등 — 자동 수정안 후보)
-  review     : ⚠️ 실질 검토(내용 변경 의심)
+  review     : ⚠️ 검토 필요(내용 변경 의심)
   check      : 📋 확인(삭제 의심 등 사람 판단)
   current    : ✅ 현행 유지
 """
@@ -286,7 +286,7 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
 
 
 SEV_ORDER = {"mechanical": 0, "review": 1, "check": 2, "current": 3}
-SEV_LABEL = {"mechanical": "🔧기계적개정", "review": "⚠️실질검토",
+SEV_LABEL = {"mechanical": "🔧기계적개정", "review": "⚠️검토필요",
              "check": "📋확인", "current": "✅현행"}
 
 
