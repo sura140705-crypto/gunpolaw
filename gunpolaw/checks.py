@@ -114,6 +114,7 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id="", su
         if sub is not None:
             det = subspec_label(*subspec)
             base["clause_detail"] = det
+            base["evidence"] = sub[:200]      # 근거도 인용한 호로 좁혀 보여줌(조 전체 앞부분 아님)
             content = sub
 
     # 1차 신호: (좁힌) 조항의 inline 개정일 (전부개정 일괄 갱신 노이즈 회피)

@@ -231,6 +231,10 @@ def action_text(f):
                     f"지자체 자체 규칙이면 자치법규정보시스템(ELIS)에서 확인 — {loc} 인용 정비")
         if ct == "당시부재":
             return f"「{law}」 {clause} 인용 시점을 확인 — {loc} (제정 당시 부재)"
+        if ct == "호미확인":
+            cd = _get(f, "clause_detail") or ""
+            return (f"「{law}」 {clause}{cd} 변경 여부 확인 — {clause}은 조례 시행 이후 개정됐으나 "
+                    f"인용한 {cd or '해당 호'}엔 개정 표기가 없어 변경 여부 불명확({loc})")
         return f"「{law}」 {clause} 소재를 확인(삭제·이동·오기 여부) — {loc}"
 
     return _base() + extra
