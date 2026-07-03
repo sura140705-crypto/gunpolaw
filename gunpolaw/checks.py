@@ -306,8 +306,10 @@ def diff_clause(old_arts, cur_arts, clause_label, ord_enforce, law_name="", law_
                 "evidence": _evidence(),
                 "detail": f"{clause_label} 내용이 조례 제정 당시와 달라짐(개정이력 표기 없음) — 검토 필요"}
 
-    return {**base, "severity": "check", "change_type": "당시부재",
-            "detail": f"{clause_label} 의 개정이력·당시 본문을 확인 불가 — 확인 필요"}
+    # 제정 당시 시행본엔 없던 조문이나 현행엔 존재하고(예고법령 반영 등) 개정 태그도 없음 —
+    # '당시 어땠는지'는 무의미하다. 현 시점에 유효하면 정비 대상 아님 → 현행 정합(확인 불필요).
+    return {**base, "category": "current", "severity": "current", "change_type": "동일",
+            "detail": f"{clause_label} 는 현행 법령에 존재(제정 당시본엔 없었으나 현재 유효) — 현행 정합"}
 
 
 SEV_ORDER = {"mechanical": 0, "review": 1, "check": 2, "current": 3}
