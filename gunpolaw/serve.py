@@ -863,7 +863,7 @@ a.lname:hover{text-decoration:underline;}
     </div>
     <a href="/admin" id="adminLink" class="topbar-admin">🔧 판정 근거 검사</a>
   </header>
-  <div class="disclaimer">⚠️ 이 판정은 <b>자동 분석 결과로 완전하지 않습니다.</b> 누락·오탐이 있을 수 있으니,
+  <div class="disclaimer">⚠️ 이 판정은 <b>자동 분석 결과로 완전하지 않습니다.</b> 누락 및 오류가 있을 수 있으니,
      정비 여부는 <b>반드시 담당자가 조례 원문과 현행 법령을 직접 확인해 최종 판단</b>하세요.</div>
   <div class="kpis" id="hero"></div>
   <div class="changes" id="changes" style="display:none"></div>

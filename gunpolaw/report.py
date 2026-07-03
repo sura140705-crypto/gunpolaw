@@ -806,7 +806,7 @@ def render_html(model, generated_at="", title="자치법규 정비 권고서", p
         f'<div class="page">{bar}<div class="dochd"><div class="kicker">자치법규 정비 점검</div>'
         f'<h1>{_esc(title)}</h1><div class="sub">{sub}</div></div>'
         '<div class="docnote">⚠️ 이 권고서는 인용 조항의 시점·내용 비교로 <b>자동 생성된 초안으로 '
-        '완전하지 않습니다.</b> 누락·오탐이 있을 수 있으므로, 정비 여부는 <b>반드시 담당자가 조례 원문과 '
+        '완전하지 않습니다.</b> 누락 및 오류가 있을 수 있으므로, 정비 여부는 <b>반드시 담당자가 조례 원문과 '
         '현행 법령을 직접 확인해 최종 판단</b>해야 합니다.</div>'
         f'<div class="cards">{cards}</div>{legend}{blocks}'
         '<footer>본 권고서는 자동 생성된 초안이며, 최종 개정 판단의 책임은 담당 부서의 검토에 있습니다.</footer>'
@@ -852,7 +852,7 @@ def model_to_csv(model, dept=""):
                 it.get("action", ""),
                 _fmtdate(it.get("old_enforce")), _fmtdate(it.get("clause_enforce"))])
     w.writerow([])
-    w.writerow(["※ 자동 분석 초안 — 누락·오탐이 있을 수 있음. 정비 여부는 담당자가 "
+    w.writerow(["※ 자동 분석 초안 — 누락 및 오류가 있을 수 있음. 정비 여부는 담당자가 "
                 "조례 원문과 현행 법령을 직접 확인해 최종 판단하시기 바랍니다."])
     return "﻿" + buf.getvalue()
 
@@ -887,7 +887,7 @@ def grade_to_csv(db_path, grade):
             clause_full, ("서식" if grade == "format" else r["change_type"] or ""),
             action_text(dict(r))])
     w.writerow([])
-    w.writerow(["※ 자동 분석 초안 — 누락·오탐이 있을 수 있음. 정비 여부는 담당자가 "
+    w.writerow(["※ 자동 분석 초안 — 누락 및 오류가 있을 수 있음. 정비 여부는 담당자가 "
                 "조례 원문과 현행 법령을 직접 확인해 최종 판단하시기 바랍니다."])
     return "﻿" + buf.getvalue()
 
