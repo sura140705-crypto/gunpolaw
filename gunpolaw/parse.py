@@ -14,6 +14,10 @@ from .clauses import to_label
 # 네임스페이스를 나눈다("ADM:1234567"). 기존 laws/law_articles/findings 테이블을 그대로
 # 재사용(스키마 변경 0) — resolve_law_id(법령) 인덱스는 이 접두어를 배제한다.
 ADM_PREFIX = "ADM:"
+# 행정규칙 신구조문 대비(admrulOldAndNew) 원본 XML 영속용 네임스페이스 — laws 테이블에
+# name="" 로 적재해 reparse 가 재현하게 하되 resolve 인덱스엔 안 걸리게 한다. "ADM:" 로
+# 시작하지 않으므로(ADMONV≠ADM:) 행정규칙 본문(ADM_PREFIX) 경로와 절대 겹치지 않는다.
+ADM_ONV_PREFIX = "ADMONV:"
 
 
 def is_admrul_id(law_id):
@@ -284,3 +288,74 @@ def admrul_name_of(xml):
         if el is not None and (el.text or "").strip():
             return el.text.strip()
     return ""
+
+
+# ------------------------------------------------------------------
+# 행정규칙 신구조문 대비(target=admrulOldAndNew)
+# ------------------------------------------------------------------
+# 대비표의 <조문>은 정형 조문 dict 가 아니라 '(현행과 같음)·(생 략)' 마커와 항(①②) 단위가
+# 섞인 사람이 읽는 표 — 제N조 헤더 기준으로 묶고, 마커·태그·공백을 지운 뒤 신·구를 비교한다.
+_ADM_MARKER_RE = re.compile(r"\(\s*(?:현행과\s*같음|현행과같음|좌\s*동|좌동|생\s*략|생략)\s*\)")
+
+
+def _group_admrul_jomun(list_el):
+    """<구조문목록>/<신조문목록> 하위 <조문> 라인들을 '제N조' 헤더 기준으로 {라벨:텍스트}."""
+    out, cur = {}, None
+    if list_el is None:
+        return out
+    for jo in list_el.findall("조문"):
+        line = (jo.text or "").strip()
+        if not line:
+            continue
+        m = _JO_HEAD_RE.match(line)
+        if m:
+            cur = to_label(int(m.group(1)), int(m.group(2) or 0))
+            out[cur] = line
+        elif cur:
+            out[cur] += "\n" + line
+    return out
+
+
+def _norm_admrul_text(t):
+    """신·구 비교용 정규화 — 대비 마커·<태그>·공백 제거."""
+    t = _ADM_MARKER_RE.sub("", t or "")
+    t = re.sub(r"<[^>]+>", "", t)
+    return re.sub(r"\s+", "", t)
+
+
+def parse_admrul_oldnew(xml):
+    """행정규칙 신구조문 대비 XML -> dict.
+
+    {exists, new_enforce(YYYYMMDD), issued(YYYYMMDD), old:{라벨:텍스트}, new:{라벨:텍스트}}.
+    신구법존재여부=N 이거나 신조문목록이 없으면 exists=False(개정 없음 → 존재확인만)."""
+    empty = {"exists": False, "new_enforce": "", "issued": "", "old": {}, "new": {}}
+    if not xml:
+        return empty
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return empty
+    if (root.findtext(".//신구법존재여부") or "").strip().upper() == "N":
+        return empty
+    new_list = root.find(".//신조문목록")
+    if new_list is None:
+        return empty
+    info = root.find(".//신조문_기본정보")
+    ne = (info.findtext("시행일자") if info is not None else "") or ""
+    iss = (info.findtext("발령일자") if info is not None else "") or ""
+    return {
+        "exists": True,
+        "new_enforce": re.sub(r"\D", "", ne),
+        "issued": re.sub(r"\D", "", iss),
+        "old": _group_admrul_jomun(root.find(".//구조문목록")),
+        "new": _group_admrul_jomun(new_list),
+    }
+
+
+def admrul_clause_changed(oldnew, label):
+    """신구조문 대비에서 인용 조(label)가 실제로 바뀌었는지 — 마커·공백 무시.
+    신조문 대비표에 그 조가 없으면(이번 개정과 무관) False, 신설이면 True."""
+    n = oldnew["new"].get(label)
+    if n is None:
+        return False
+    return _norm_admrul_text(oldnew["old"].get(label, "")) != _norm_admrul_text(n)

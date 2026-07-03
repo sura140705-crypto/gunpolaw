@@ -11,7 +11,8 @@ from . import moleg
 from . import checks
 from . import history
 from .parse import (parse_law_articles, law_name_of, parse_admrul_articles,
-                    admrul_name_of, ADM_PREFIX)
+                    admrul_name_of, parse_admrul_oldnew, admrul_clause_changed,
+                    ADM_PREFIX, ADM_ONV_PREFIX)
 from .extract import extract_citations_by_article, group_by_law, is_local_admrul
 
 
@@ -25,9 +26,10 @@ class LiveSource:
     get_law_body = staticmethod(moleg.get_law_body)
     list_versions = staticmethod(history.list_versions)
     body_with_xml_by_mst = staticmethod(history.body_with_xml_by_mst)
-    # 행정규칙(훈령·예규·고시·지침) — 법령 해소 실패 시 폴백(존재·현행 확인)
+    # 행정규칙(훈령·예규·고시·지침) — 법령 해소 실패 시 폴백(존재·현행 + 신구법 개정 탐지)
     resolve_admrul_id = staticmethod(moleg.resolve_admrul_id)
     get_admrul_body = staticmethod(moleg.get_admrul_body)
+    get_admrul_old_and_new = staticmethod(moleg.get_admrul_old_and_new)
 
 
 def _name_key(s):
@@ -64,11 +66,44 @@ def _analyze_admrul(name, g, ord_enforce, src,
     if not occs:
         # 조 미지정(법명-only) 인용 — 존재 확인만으로 충분(정비 항목 없음), 매핑만 보존
         return True
+
+    # 신구법(개정 전/후) 대비 — 행정규칙은 연혁이 없어 시점 diff 불가였으나, 최근 개정 1쌍은
+    # admrulOldAndNew 로 받아 '조례 시행 이후 개정'을 잡는다(없으면 기존 존재확인만).
+    # 원본 XML 은 laws(ADM_ONV_PREFIX, name="")에 영속 → reparse 도 이 판정을 재현한다.
+    oldnew = None
+    getter = getattr(src, "get_admrul_old_and_new", None)
+    if getter:
+        try:
+            onv_xml = getter(str(adm_id))
+        except Exception:
+            onv_xml = None
+        if onv_xml:
+            fetched_laws.setdefault(ADM_ONV_PREFIX + str(adm_id),
+                                    {"name": "", "body_xml": onv_xml, "articles": {}})
+            oldnew = parse_admrul_oldnew(onv_xml)
+    od = re.sub(r"\D", "", ord_enforce or "")
+
     for occ in occs:
-        f = checks.check_clause(cur_arts, occ["label"], ord_enforce, name, key)
-        # 행정규칙임을 명시(시점 판정 아님을 담당자가 알도록) + 현행이면 노이즈 억제 유지
-        f["change_type"] = f.get("change_type") or ""
-        f["detail"] = "[행정규칙] " + f["detail"]
+        label = occ["label"]
+        f = None
+        # 개정본 시행일이 조례 시행 이후이고, 인용한 조가 신구조문 대비에서 바뀌었으면 검토 필요
+        if (oldnew and oldnew["exists"] and od and oldnew["new_enforce"]
+                and oldnew["new_enforce"] > od and admrul_clause_changed(oldnew, label)):
+            ne = oldnew["new_enforce"]
+            ne_f = f"{ne[:4]}-{ne[4:6]}-{ne[6:8]}" if len(ne) == 8 else ne
+            f = {
+                "law_id": key, "law_name": name, "clause_label": label,
+                "ord_enforce": ord_enforce, "clause_enforce": ne, "old_enforce": "",
+                "evidence": (oldnew["old"].get(label, "") or "")[:200],
+                "category": "timing", "severity": "review", "change_type": "내용변경",
+                "detail": (f"[행정규칙] 인용 조항이 조례 시행({ord_enforce}) 이후 개정됨 "
+                           f"(개정 시행 {ne_f}) — 신구조문 대비상 내용 변경, 검토 필요"),
+            }
+        if f is None:
+            f = checks.check_clause(cur_arts, label, ord_enforce, name, key)
+            # 행정규칙임을 명시(시점 판정 아님을 담당자가 알도록) + 현행이면 노이즈 억제 유지
+            f["change_type"] = f.get("change_type") or ""
+            f["detail"] = "[행정규칙] " + f["detail"]
         f["ord_clause"] = occ["ord_article"]
         f["ord_seq"] = occ["ord_seq"]
         f["cite_naked"] = 1 if occ.get("naked") else 0

@@ -11,7 +11,7 @@ DB의 원본 XML(ordinances.body_xml / laws.body_xml / law_versions.body_xml)을
 from datetime import datetime, timedelta
 
 from . import db
-from .parse import parse_ordinance_body, parse_law_articles, ADM_PREFIX
+from .parse import parse_ordinance_body, parse_law_articles, ADM_PREFIX, ADM_ONV_PREFIX
 from .pipeline import analyze_ordinance, LiveSource
 from .batch import persist_result, _now
 
@@ -84,6 +84,12 @@ class _DBSource:
         # 행정규칙 본문도 laws 테이블에 ADM 접두어 law_id 로 적재돼 있음(재수집 없이 재파싱)
         r = self.conn.execute("SELECT body_xml FROM laws WHERE law_id=?",
                               (ADM_PREFIX + str(admrul_id),)).fetchone()
+        return (r["body_xml"] if r else "") or ""
+
+    def get_admrul_old_and_new(self, admrul_id):
+        # 신구조문 대비 원본도 laws 에 ADM_ONV 접두어로 적재됨 → 개정 판정 재현
+        r = self.conn.execute("SELECT body_xml FROM laws WHERE law_id=?",
+                              (ADM_ONV_PREFIX + str(admrul_id),)).fetchone()
         return (r["body_xml"] if r else "") or ""
 
     def list_versions(self, law_name, law_id=None):
@@ -167,6 +173,17 @@ class StaleAwareSource:
             return row["body_xml"]
         self.misses["law"] += 1
         return self._live.get_admrul_body(admrul_id)
+
+    def get_admrul_old_and_new(self, admrul_id):
+        key = ADM_ONV_PREFIX + str(admrul_id)
+        row = self.conn.execute(
+            "SELECT body_xml, fetched_at FROM laws WHERE law_id=?", (key,)).fetchone()
+        if row and row["body_xml"] and self._fresh(row["fetched_at"]):
+            self.reused_law_at[key] = row["fetched_at"]
+            self.misses["law_reused"] += 1
+            return row["body_xml"]
+        self.misses["law"] += 1
+        return self._live.get_admrul_old_and_new(admrul_id)
 
     def get_law_body(self, law_id):
         row = self.conn.execute(

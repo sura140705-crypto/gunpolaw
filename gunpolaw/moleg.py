@@ -191,3 +191,13 @@ def get_admrul_body(admrul_id):
         if alt and "<행정규칙" in alt:
             return alt
     return xml
+
+
+def get_admrul_old_and_new(admrul_id):
+    """행정규칙 신구법(개정 전/후) 대비 XML(target=admrulOldAndNew).
+
+    행정규칙엔 시행일자별 연혁(eflaw)이 없어 시점 diff 가 안 되던 공백을 메운다 —
+    이 API 는 '가장 최근 개정 1쌍'(구조문↔신조문)만 준다(전체 연혁 아님). 신구법이
+    없으면 응답에 <신구법존재여부>N</신구법존재여부>. 파싱은 parse.parse_admrul_oldnew."""
+    return call("lawService.do",
+                {"target": "admrulOldAndNew", "type": "XML", "ID": str(admrul_id)})
