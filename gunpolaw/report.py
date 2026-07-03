@@ -465,7 +465,14 @@ body.report { font-family: "Malgun Gothic","맑은 고딕",system-ui,sans-serif;
 .artsec { margin:0 0 8px; }
 .arthd { font-size:13px; font-weight:700; color:var(--navy); background:var(--soft);
          border-left:3px solid var(--navy2); padding:5px 11px; border-radius:0 4px 4px 0;
-         margin:14px 0 6px; }
+         margin:14px 0 6px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+/* 조문별 검토 상태 칩 — 정비 대상 등급 or ✅검토완료(제외대상만) */
+.secst { font-size:11px; font-weight:700; border-radius:999px; padding:1px 9px; }
+.secst.st-ok { background:#dcfce7; color:#166534; }
+.secst.st-review { background:#fef3c7; color:#92400e; }
+.secst.st-check { background:#f3f4f6; color:#374151; }
+.secst.st-format { background:#ede9fe; color:#5b21b6; }
+.secst.st-mechanical { background:#dbeafe; color:#1e40af; }
 .item { border-top:1px solid #f3f4f6; padding:9px 0 9px 10px; }
 .iline { margin-bottom:3px; }
 .item .tag { font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px;
@@ -718,9 +725,19 @@ def _ord_block(o, collapsible=False):
                 f'<div class="ordtext"><b>{_esc(a)}</b> '
                 f'{ahtml.get(a) or _esc(atext.get(a, ""))}</div>'
                 for a in labels if (ahtml.get(a) or atext.get(a)))
+        # 조문별 상태 칩(검토 사항 쪽) — 정비 대상 등급이 있으면 그 등급, 없으면 ✅ 검토완료.
+        # 제외대상(현행)만 있어 밋밋하게 넘어가던 조문도 '검토했고 문제없음'을 드러낸다.
+        act = [it["grade"] for it in group if it["grade"] != "current"]
+        if act:
+            uniq = [g for g in ("mechanical", "review", "check", "format") if g in act]
+            status = "".join(
+                f'<span class="secst st-{g}">{GRADE_META[g]["emoji"]} {GRADE_META[g]["label"]}</span>'
+                for g in uniq)
+        else:
+            status = '<span class="secst st-ok">✅ 검토완료</span>'
         secs_html.append(
             f'<div class="artsec" data-oc="{_esc(art)}">'
-            f'<div class="arthd">조례 {_esc(art)}</div>{ord_src}{body}</div>')
+            f'<div class="arthd">조례 {_esc(art)}{status}</div>{ord_src}{body}</div>')
 
     return (
         f'<div class="ord"><h2>{_esc(o["name"])}</h2>'
