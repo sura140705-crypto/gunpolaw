@@ -296,6 +296,17 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
         if g != "current":
             oc = (fr["ord_clause"] or "").split(",")[0].strip()
             actionable.add((oc, fr["law_name"] or "", fr["clause_label"] or ""))
+    # 공식 연계(lnkOrg)엔 있으나 본문 인용이 검출되지 않은 법령 = 근거·연계 후보(위임 관계 등)
+    cited_ids = {c["law_id"] for c in cits if c["law_id"]}
+    linked_refs, _lseen = [], set()
+    for r in conn.execute(
+            "SELECT law_id, law_name FROM ord_law_links WHERE mst=? AND law_id!='' "
+            "ORDER BY law_name", (str(mst),)):
+        lid = r["law_id"]
+        if lid in cited_ids or lid in _lseen:
+            continue
+        _lseen.add(lid)
+        linked_refs.append({"law_id": lid, "name": r["law_name"] or ""})
     conn.close()
 
     by_art = {}
@@ -329,7 +340,7 @@ def ordinance_detail(db_path=db.DEFAULT_DB, mst=None):
 
     meta = {k: o[k] for k in o.keys() if k != "body_xml"} if o else {}
     return {"meta": meta, "articles": articles, "local_refs": local_refs,
-            "law_refs": law_refs, "features": features,
+            "law_refs": law_refs, "features": features, "linked_refs": linked_refs,
             "recommend": recommend_fragment(mst, db_path, collapsible=True)}
 
 
@@ -577,8 +588,12 @@ td.rep a{font-size:12px;margin-right:7px;color:#2563eb;text-decoration:none;}
 .detail .dfeat{margin-top:10px;display:flex;flex-direction:column;gap:5px;}
 .dfeat .frow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
 .dfeat .flabel{font-size:11px;font-weight:700;color:#6b7280;min-width:52px;}
+.dfeat .flabel .flabel-sub{font-weight:400;color:#9ca3af;}
 .dfeat .fchip,.dfeat .gchip{font-size:11.5px;padding:2px 9px;border-radius:999px;
   background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;white-space:nowrap;}
+/* 근거·연계(공식 연계지만 본문 인용 미검출) — 인디고 계열, 링크 */
+.dfeat a.fchip-lnk{background:#e0e7ff;color:#3730a3;border-color:#c7d2fe;text-decoration:none;}
+.dfeat a.fchip-lnk:hover{background:#c7d2fe;}
 .dfeat .gchip.g-review{background:#fef3e2;color:#b45309;border-color:#fcd9a8;}
 .dfeat .gchip.g-mechanical{background:#e7edff;color:#1d4ed8;border-color:#c7d6fe;}
 .dfeat .gchip.g-format{background:#f3ecff;color:#6d28d9;border-color:#ddd0fb;}
@@ -1038,6 +1053,12 @@ async function selectOrd(mst){
   if(F.admrul)comp.push(`<span class="fchip">📕 행정규칙 ${F.admrul}</span>`);
   if(F.local)comp.push(`<span class="fchip">🏛 타조례 ${F.local}</span>`);
   const compBar=comp.length?`<div class="dfeat"><div class="frow"><span class="flabel">인용 구성</span>${comp.join("")}</div></div>`:"";
+  // 근거·연계 — 국가법령정보 공식 연계(lnkOrg)인데 본문에서 인용을 못 찾은 법령(위임·근거 관계 가능)
+  const lref=d.linked_refs||[];
+  const lchips=lref.map(x=>`<a class="fchip fchip-lnk" target="_blank" rel="noopener"`
+    +` href="https://www.law.go.kr/${encodeURIComponent("법령")}/${encodeURIComponent(x.name)}"`
+    +` title="공식 연계이나 조례 본문에 인용 미검출 — 위임·근거 관계일 수 있어 확인 권장">「${esc(x.name)}」 ↗</a>`).join("");
+  const linkedBar=lref.length?`<div class="dfeat"><div class="frow"><span class="flabel" title="국가법령정보 공식 연계인데 본문 인용이 안 보이는 법령 — 위임·근거 관계 가능">근거·연계 <span class="flabel-sub">(본문 인용 미검출)</span></span>${lchips}</div></div>`:"";
   // 정비 상태(우측) — 정비 대상 등급만. 현행(변경없음)은 아래 '제외 대상' 버튼이 대신 안내.
   const gcs=["mechanical","review","check","format"].filter(k=>gr[k])
     .map(k=>`<span class="gchip g-${k}">${GM[k].emoji} ${esc(GM[k].label)} ${gr[k]}</span>`);
@@ -1064,7 +1085,7 @@ async function selectOrd(mst){
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="mtabs"><button data-t="body" class="on">📄 조례 본문</button><button data-t="rec">🔧 검토 사항</button></div>
      <div class="dsplit show-body">
-       <div class="dbody"><div class="dcolhd">📄 조례 본문(현황) — 정비 대상 인용만 강조(클릭 시 우측 검토) · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6" title="낫표 「」 없이 쓴 상위법령 인용 — 서식 정비 대상">「」 누락</span></div>${compBar}${left}</div>
+       <div class="dbody"><div class="dcolhd">📄 조례 본문(현황) — 정비 대상 인용만 강조(클릭 시 우측 검토) · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6" title="낫표 「」 없이 쓴 상위법령 인용 — 서식 정비 대상">「」 누락</span></div>${compBar}${linkedBar}${left}</div>
        <div class="drec hide-cur"><div class="dcolhd">🔧 검토 사항(상세) — 조례 조문별 · 좌측 인용 클릭 시 펼침</div>${gradeBar}${diffBtn}${curBtn}<div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
