@@ -65,6 +65,11 @@ NAKED_STOP = {"같은법", "이법", "그법", "본법", "해당법", "동법", 
 # 약칭(법 등) 직전이 이 조사로 끝나면 '단어+약칭'(띄어쓰기 오류)로 본다. 실제 법명
 # 어간 끝(건축'법'·민'법'·수'도'법…)과 겹치지 않는 보수적 집합만(도/로/의 등 제외).
 _JOSA_BEFORE_ALIAS = set("는은를을에")
+# 지시어(띄어쓰기 있는 '같은 법'·'이 법'…) 뒤의 약칭은 carry_over(SAME_LAW)나 자기/타 참조라
+# 약칭 재스캔 대상이 아니다 — 예: '같은 법 제38조'의 꼬리 '법'이 약칭 '법'으로 오매칭되는 것 방지.
+# (붙여쓴 '같은법'은 앞이 \w 라 기존 (?<![「\w]) 로 이미 차단됨 — 띄어쓴 경우만 보강)
+_ALIAS_REF_PREFIX = ("같은", "이", "그", "본", "해당", "다른", "동")
+_ALIAS_NEG_LB = "".join(f"(?<!{w} )" for w in _ALIAS_REF_PREFIX)
 
 # 분류
 GENERIC_NAMES = {"법령", "다른 법령", "법령이나 조례",
@@ -242,7 +247,7 @@ def _extract_segments(segments):
     for alias, full in doc_aliases.items():
         if not alias:
             continue
-        pat = re.compile(r'(?<![「\w])' + re.escape(alias) +
+        pat = re.compile(r'(?<![「\w])' + _ALIAS_NEG_LB + re.escape(alias) +
                          r'\s*(' + CLAUSE_INNER + r')')
         for no, text in norm:
             for m in pat.finditer(text):
