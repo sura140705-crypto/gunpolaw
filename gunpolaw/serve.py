@@ -351,8 +351,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _json(self, obj, status=200):
+        # API 응답도 no-cache — 분석 산출물(본문 하이라이트 등)이 바뀌면 즉시 반영되도록
+        # (브라우저가 옛 상세 JSON을 캐시해 '달라진 게 없어 보이는' 현상 방지)
         self._send(json.dumps(obj, ensure_ascii=False),
-                   status=status, ctype="application/json; charset=utf-8")
+                   status=status, ctype="application/json; charset=utf-8",
+                   headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -534,6 +537,16 @@ td .lawhit{display:block;font-size:11.5px;color:#2563eb;margin-top:2px;}
 .homebtn:hover{background:#eff6ff;border-color:#93c5fd;}
 .controls .crumb .crumb-cur{color:#374151;font-size:14px;}
 .controls .crumb .crumb-link{font-size:12.5px;}
+/* 등급 필터 배지(현재 걸린 등급 + × 해제) */
+.gradebadge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
+  color:#fff;border-radius:999px;padding:2px 6px 2px 10px;}
+.gradebadge.g-mech{background:var(--mech);}.gradebadge.g-rev{background:var(--rev);}
+.gradebadge.g-chk{background:var(--chk);}.gradebadge.g-fmt{background:var(--fmt);}
+.gradebadge.g-cur{background:var(--cur);}
+.gradebadge .gx{color:#fff;font-weight:700;line-height:1;cursor:pointer;text-decoration:none;
+  background:rgba(255,255,255,.25);border-radius:999px;width:16px;height:16px;
+  display:inline-flex;align-items:center;justify-content:center;font-size:13px;}
+.gradebadge .gx:hover{background:rgba(255,255,255,.45);}
 .layout{display:grid;grid-template-columns:1fr;gap:16px;}
 .panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13.5px;}
@@ -699,6 +712,9 @@ a.lname:hover{text-decoration:underline;}
 .kpi.k-chk::before{background:var(--chk);}    .kpi.k-chk .kpi-n{color:var(--chk);}
 .kpi.k-fmt::before{background:var(--fmt);}    .kpi.k-fmt .kpi-n{color:var(--fmt);}
 .kpi.k-cur::before{background:var(--cur);}    .kpi.k-cur .kpi-n{color:var(--cur);}
+/* 등급 칩(=필터 버튼): 클릭 가능·선택 시 강조 */
+.kpi[data-grade]{cursor:pointer;}
+.kpi[data-grade].active{border-color:#0f172a;box-shadow:0 0 0 2px #0f172a;}
 /* 주 KPI(정비 필요 조례) — 강조 */
 .kpi.primary{background:linear-gradient(135deg,#fff 55%,#fff7ed);border-color:#fcd9a8;}
 .kpi.primary::before{background:linear-gradient(#f59e0b,#d97706);width:5px;}
@@ -726,6 +742,11 @@ a.lname:hover{text-decoration:underline;}
 .pcard-hd .ps b{color:#b45309;font-size:15px;}
 .pcard-body{display:none;padding:6px 10px 10px;}
 .pcard.open .pcard-body{display:block;}
+/* 편별 등급 비율 5색 미니 막대(접힘 상태에서도 항상 노출) */
+.pbar{display:flex;height:6px;border-radius:99px;overflow:hidden;background:#eef2f7;margin:0 14px 10px;}
+.pbar i{display:block;height:100%;}
+.pbar .s-mech{background:var(--mech);}.pbar .s-rev{background:var(--rev);}
+.pbar .s-chk{background:var(--chk);}.pbar .s-fmt{background:var(--fmt);}.pbar .s-cur{background:var(--cur);}
 .dcard{display:flex;align-items:center;gap:10px;cursor:pointer;border-radius:9px;padding:11px 12px;}
 .dcard:hover{background:#f8fafc;}
 .dcard+.dcard{border-top:1px solid #f3f4f6;}
@@ -780,8 +801,7 @@ a.lname:hover{text-decoration:underline;}
   <div class="kpis" id="hero"></div>
   <div class="changes" id="changes" style="display:none"></div>
   <div class="controls">
-    <button class="backbtn upbtn" id="backBtn" onclick="goBack()" style="display:none" title="바로 전 화면으로">← 뒤로</button>
-    <button class="backbtn homebtn" id="homeBtn" onclick="goHome()" title="첫페이지로 · 데이터 새로고침">🏠 첫페이지</button>
+    <button class="backbtn homebtn" id="homeBtn" onclick="goHome()" title="첫페이지로 돌아가며 최신 데이터를 다시 불러옵니다">🔄 새로고침</button>
     <input type="search" id="searchBox" placeholder="🔍 조례명·인용 법령 검색" autocomplete="off">
     <select id="deptSel"><option value="">담당과 — 전체</option></select>
     <label><input type="checkbox" id="actChk"> 정비 대상만</label>
@@ -796,7 +816,7 @@ a.lname:hover{text-decoration:underline;}
 const GO=[]; const GM={};          // grade_order / grade_meta
 const PCLS={mechanical:"p-mech",review:"p-rev",check:"p-chk",format:"p-fmt",current:"p-cur"};
 const STATIC=false;                // export-static 가 true 로 치환(서버 없이 정적 파일만)
-let OV=null, curDept="", curMst="", curQuery="", cssInjected=false, LOCALREFS={}, LAWREFS={};
+let OV=null, curDept="", curMst="", curQuery="", curGrade="", cssInjected=false, LOCALREFS={}, LAWREFS={};
 let _ALLORDS=null, DEPTIDX={};      // 정적: 전체 조례 캐시·담당과 인덱스(리포트 파일명)
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -843,6 +863,12 @@ async function fetchOrds(opts){     // 조례 목록(라이브=서버 필터 / �
 
 function gcls(k){return k==="mechanical"?"mech":k==="review"?"rev":k==="check"?"chk":k==="format"?"fmt":"cur";}
 function nf(n){return Number(n||0).toLocaleString();}
+function pbar(grades){ // grade_order 순 5색 비율 미니 막대(0 등급 세그먼트 생략)
+  const tot=GO.reduce((s,k)=>s+(grades[k]||0),0);
+  if(!tot)return "";
+  return `<div class="pbar" title="등급 비율">`+GO.filter(k=>grades[k]>0)
+    .map(k=>`<i class="s-${gcls(k)}" style="width:${(grades[k]/tot*100).toFixed(1)}%" title="${esc(GM[k].label)} ${grades[k]}"></i>`).join("")
+    +`</div>`;}
 function renderHero(){
   const g=OV.grades, t=OV.totals;
   const pct=t.ordinances?Math.round(t.action/t.ordinances*100):0;
@@ -854,13 +880,15 @@ function renderHero(){
      <div class="hero-bar"><i style="width:${pct}%"></i></div></div>`;
   // 등급별 KPI 카드(판정 건수) — 0건 등급은 숨김(항상 0인 지표 제외). 색은 좌측 액센트 바.
   const cards=GO.filter(k=>g[k]).map(k=>{const m=GM[k];
-    return `<div class="kpi k-${gcls(k)}" title="${esc(m.desc||"")}">
+    return `<div class="kpi k-${gcls(k)}${k===curGrade?" active":""}" data-grade="${k}"
+         title="${esc(m.desc||"")}${m.desc?" — ":""}클릭 시 이 등급만 보기">
        <div class="kpi-ic">${m.emoji}</div>
        <div class="kpi-n">${nf(g[k])}</div>
        <div class="kpi-l">${esc(m.label)}</div>
        ${m.desc?`<div class="kpi-d">${esc(m.desc)}</div>`:""}</div>`;}).join("");
-  document.getElementById("hero").innerHTML=
-    primary+`<div class="kpi-grades">${cards}</div>`;
+  const H=document.getElementById("hero");
+  H.innerHTML=primary+`<div class="kpi-grades">${cards}</div>`;
+  H.querySelectorAll(".kpi[data-grade]").forEach(c=>c.onclick=()=>selectGrade(c.dataset.grade));
 }
 function togglePyeon(card){
   const open=card.classList.toggle("open");
@@ -953,6 +981,7 @@ function renderDeptTable(){
           <span class="pn">${g.no?'제'+esc(g.no)+'편 ':''}${esc(g.name)}</span>
           <span class="pgrades">${dist(g.grades)}</span>
           <span class="ps">정비 <b>${g.action}</b> / ${g.total}</span></button>
+        ${pbar(g.grades)}
         <div class="pcard-body">${g.depts.map(_deptCard).join("")}</div></div>`).join("")
     +`</div>`;
   P.querySelectorAll(".pcard-hd").forEach(hd=>hd.onclick=()=>togglePyeon(hd.parentElement));
@@ -967,7 +996,8 @@ function _ordCard(o,showDept){
     <div class="ochips">${dist(o.grades)}</div></div>`;
 }
 async function renderOrdList(){
-  const list=await fetchOrds({dept:curDept, action:document.getElementById("actChk").checked});
+  let list=await fetchOrds({dept:curDept, action:document.getElementById("actChk").checked});
+  if(curGrade)list=list.filter(o=>o.grades&&o.grades[curGrade]>0);
   const P=document.getElementById("listPanel");
   if(!list.length){P.innerHTML=`<div class="empty">해당 조건의 조례가 없습니다.</div>`;return;}
   P.innerHTML=`<div class="listhd">${esc(curDept)} · 조례 ${list.length}건</div><div class="olist">`
@@ -976,7 +1006,8 @@ async function renderOrdList(){
 }
 async function renderSearch(){
   // 자유검색(조례명 또는 인용 법령명 매치, 담당과 교차)
-  const list=await fetchOrds({q:curQuery, action:document.getElementById("actChk").checked});
+  let list=await fetchOrds({q:curQuery, action:document.getElementById("actChk").checked});
+  if(curGrade)list=list.filter(o=>o.grades&&o.grades[curGrade]>0);
   const P=document.getElementById("listPanel");
   if(!list.length){P.innerHTML=`<div class="empty">'${esc(curQuery)}' 검색 결과 없음.</div>`;return;}
   P.innerHTML=`<div class="listhd">검색 “${esc(curQuery)}” · ${list.length}건</div><div class="olist">`
@@ -1034,7 +1065,6 @@ async function selectOrd(mst){
      </div>`;
   dp.style.display="block";
   document.getElementById("layout").classList.add("detail-open");
-  renderBackBtn();                 // 상세 진입 → back 버튼을 '← 목록'으로
   // 제외 대상(변경 없음·현행) — 기본 숨김. 버튼으로 펼치고 라벨 전환.
   const showCur=dp.querySelector("#showCurBtn");
   if(showCur)showCur.onclick=()=>{
@@ -1151,24 +1181,7 @@ function showLawRef(name){
 }
 function closeDetail(){curMst="";
   document.getElementById("detailPanel").style.display="none";
-  document.getElementById("layout").classList.remove("detail-open");
-  renderBackBtn();}
-
-function renderBackBtn(){
-  // 컨텍스트 back — 한 단계 상위로. 홈이면 숨김(더 갈 곳 없음).
-  const b=document.getElementById("backBtn"); if(!b)return;
-  if(curMst){b.style.display="";b.textContent="← 목록";}
-  else if(curDept||curQuery){b.style.display="";b.textContent="← 첫페이지";}
-  else{b.style.display="none";}
-}
-function goBack(){
-  if(curMst){closeDetail();return;}          // 상세 → 목록
-  // 목록(과/검색) → 첫페이지
-  const sb=document.getElementById("searchBox"); if(sb)sb.value="";
-  const ds=document.getElementById("deptSel"); if(ds)ds.value="";
-  curDept=""; curQuery=""; closeDetail();
-  renderCrumb(); renderDeptTable();
-}
+  document.getElementById("layout").classList.remove("detail-open");}
 
 function selectDept(dept){
   curDept=dept;
@@ -1179,21 +1192,46 @@ function selectDept(dept){
 function clearSearch(){
   document.getElementById("searchBox").value=""; curQuery=""; refresh();
 }
+function selectGrade(k){
+  if(curGrade===k){clearGrade();return;}          // 같은 등급 재클릭 = 해제(토글)
+  curGrade=k;
+  const ac=document.getElementById("actChk"); if(ac)ac.checked=true;  // 등급 필터는 정비 대상 기준
+  renderHero();                                   // 선택 칩 강조 갱신
+  refresh();
+}
+function clearGrade(){
+  curGrade="";
+  renderHero();
+  refresh();
+}
+async function renderGradeList(){
+  // 과 미선택 상태에서 등급 칩만으로 전체 조례를 필터(담당과 교차 표시)
+  let list=await fetchOrds({action:document.getElementById("actChk").checked});
+  list=list.filter(o=>o.grades&&o.grades[curGrade]>0);
+  const P=document.getElementById("listPanel");
+  const m=GM[curGrade]||{emoji:"",label:curGrade};
+  if(!list.length){P.innerHTML=`<div class="empty">${m.emoji} ${esc(m.label)} 대상 조례가 없습니다.</div>`;return;}
+  P.innerHTML=`<div class="listhd">${m.emoji} ${esc(m.label)} · 조례 ${list.length}건</div><div class="olist">`
+    +list.map(o=>_ordCard(o,true)).join("")+`</div>`;
+  P.querySelectorAll(".ocard[data-mst]").forEach(c=>c.onclick=()=>selectOrd(c.dataset.mst));
+}
 function renderCrumb(){
-  renderBackBtn();                 // 화면 전환마다 back 버튼 라벨·표시 갱신
   const c=document.getElementById("crumb");
-  if(curQuery){c.innerHTML=`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`;return;}
-  if(!curDept){c.innerHTML="";return;}
+  const m=GM[curGrade];
+  const gb=curGrade&&m?`<span class="gradebadge g-${gcls(curGrade)}">${m.emoji} ${esc(m.label)}`
+    +`<a class="gx" onclick="clearGrade()" title="등급 필터 해제">×</a></span>`:"";
+  if(curQuery){c.innerHTML=`<b class="crumb-cur">검색 “${esc(curQuery)}”</b>`+gb;return;}
+  if(!curDept){c.innerHTML=gb;return;}
   c.innerHTML=`<b class="crumb-cur">${esc(curDept)}</b>`
     +`<a class="crumb-link" href="${deptReportHref(curDept,'html')}" target="_blank">🖨 과별 리포트</a>`
-    +`<a class="crumb-link" href="${deptReportHref(curDept,'csv')}">CSV 내려받기</a>`;
+    +`<a class="crumb-link" href="${deptReportHref(curDept,'csv')}">CSV 내려받기</a>`+gb;
 }
 async function goHome(){
   // 첫페이지로 복귀 + 데이터 새로고침(overview·changes 재조회) — 상세/검색/과 선택 초기화
   const sb=document.getElementById("searchBox"); if(sb)sb.value="";
   const ds=document.getElementById("deptSel"); if(ds)ds.value="";
   const ac=document.getElementById("actChk"); if(ac)ac.checked=false;
-  curDept=""; curQuery=""; _ALLORDS=null;
+  curDept=""; curQuery=""; curGrade=""; _ALLORDS=null;
   closeDetail();
   try{OV=await getJSON("/api/overview");}catch(e){}
   renderBanner(); renderHero(); renderChanges();
@@ -1203,7 +1241,9 @@ async function refresh(){
   closeDetail();
   renderCrumb();
   if(curQuery) await renderSearch();
-  else if(curDept) await renderOrdList(); else renderDeptTable();
+  else if(curDept) await renderOrdList();
+  else if(curGrade) await renderGradeList();
+  else renderDeptTable();
 }
 
 async function init(){
@@ -1214,7 +1254,8 @@ async function init(){
   renderBanner(); renderHero(); fillDeptSelect(); renderChanges();
   document.getElementById("deptSel").onchange=e=>selectDept(e.target.value);
   document.getElementById("actChk").onchange=()=>{
-    if(curQuery)renderSearch();else if(curDept)renderOrdList();};
+    if(curQuery)renderSearch();else if(curDept)renderOrdList();
+    else if(curGrade)renderGradeList();};
   const sb=document.getElementById("searchBox");
   let _t=null;
   sb.oninput=()=>{clearTimeout(_t);_t=setTimeout(()=>{

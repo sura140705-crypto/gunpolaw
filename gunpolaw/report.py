@@ -231,6 +231,43 @@ def action_text(f):
     return _base() + extra
 
 
+def action_html(f):
+    """action_text 의 검토(우측) 패널용 HTML — '무엇을 → 무엇으로' 고칠지가 드러나도록
+    서식 정정(신·구 표기)·제명변경(신·구 명칭)만 강조 span 을 넣는다. 문안은 그대로 두고
+    색만 입혀 총괄자가 정정 지점을 한눈에 보게 함. 그 외 유형은 평문(_esc)."""
+    ct = _get(f, "change_type")
+    law = _get(f, "law_name") or "(법령명 미상)"
+    clause = _get(f, "clause_label")
+    naked = _get(f, "cite_naked")
+    sev = _get(f, "severity")
+    # 제명변경 — 옛 법령명(회색) → 현행 법령명(초록). 문안은 detail 그대로 두고 색만.
+    if ct == "제명변경":
+        det = _get(f, "detail") or ""
+        m = re.search(r"현행\s*「([^」]+)」", det)
+        new = m.group(1) if m else ""
+        if new:
+            out = _esc(det)
+            out = out.replace(_esc(f"「{law}」"),
+                              f'<span class="fx-old">{_esc(f"「{law}」")}</span>', 1)
+            out = out.replace(_esc(f"「{new}」"),
+                              f'<span class="fx-new">{_esc(f"「{new}」")}</span>', 1)
+            return out
+        return _esc(action_text(f))
+    # 서식만 정비(「」 누락) — 맨몸 표기(회색) → 낫표 표기(삽입 「」를 초록으로)
+    if naked and sev == "current":
+        here = _get(f, "ord_clause")
+        loc = f"이 조례 {here}" if here else "이 조례의 해당 조문"
+        cl = f" {clause}" if clause else ""
+        a = f"{law}{cl}"
+        b_plain = f"「{law}」{cl}"
+        b_html = f'<ins class="fx-brk">「</ins>{_esc(law)}<ins class="fx-brk">」</ins>{_esc(cl)}'
+        return ('(서식만 정비) "'
+                f'<span class="fx-old">{_esc(a)}</span>"{_josa(a, "을", "를")} "'
+                f'<span class="fx-new">{b_html}</span>"{_josa(b_plain, "으로", "로")} 정정 '
+                f'— <b>내용 변경은 없음</b> ({_esc(loc)})')
+    return _esc(action_text(f))
+
+
 # ---------- DB → 보고 모델 ----------
 def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=False):
     """findings + ordinances → 권고서 렌더 모델.
@@ -326,6 +363,7 @@ def build_model(db_path=db.DEFAULT_DB, mst=None, dept=None, include_current=Fals
                 "ord_clause": r["ord_clause"] or "",
                 "ord_seq": r["ord_seq"] if r["ord_seq"] is not None else 999999,
                 "action": action_text(r),
+                "action_html": action_html(r),
                 "evidence": r["evidence"] or "",
                 "ord_enforce": r["ord_enforce"] or o["enforce_date"],
                 "old_enforce": r["old_enforce"] or "",
@@ -451,6 +489,11 @@ details.citem.focus { box-shadow:inset 3px 0 0 var(--navy2); }
 .item .law { font-size:13px; font-weight:600; color:#374151; }
 .item .law .ki { font-weight:400; font-size:12px; margin-right:1px; }
 .item .act { font-size:13.5px; margin:3px 0; color:var(--ink); }
+/* 검토 문안 내 정정 강조 — 현재 표기(회색) → 정정 표기(초록), 삽입 「」는 진한 초록 */
+.act .fx-old { background:#f1f5f9; color:#64748b; border-radius:3px; padding:0 3px; }
+.act .fx-new { background:#eafaf0; color:#15803d; border-radius:3px; padding:0 3px; font-weight:600; }
+.act .fx-new .fx-brk { background:#bbf7d0; color:#166534; font-weight:800; border-radius:2px;
+    padding:0 1px; margin:0 1px; text-decoration:none; }
 .basis { font-size:11.5px; color:var(--muted); margin:4px 0 6px; }
 .basis b { color:#374151; font-weight:600; }
 .ordtext { font-size:12.5px; color:var(--ink); background:var(--soft); border:1px solid var(--line);
@@ -603,7 +646,7 @@ def _item_block(it, collapsible=False):
             badges += '<span class="tag t-space">띄어쓰기</span>'
     head = (f'<span class="tag {tag_cls}">{_esc(tag)}</span>{badges}'
             f'<span class="law">{law}</span>')
-    body = (f'<div class="act">{_esc(it["action"])}</div>'
+    body = (f'<div class="act">{it.get("action_html") or _esc(it["action"])}</div>'
             f'{_basis_line(it)}{_evidence_block(it)}')
     if collapsible:
         cls = "item citem cur" if it["grade"] == "current" else "item citem"
