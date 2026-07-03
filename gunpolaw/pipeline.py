@@ -100,7 +100,8 @@ def _analyze_admrul(name, g, ord_enforce, src,
                            f"(개정 시행 {ne_f}) — 신구조문 대비상 내용 변경, 검토 필요"),
             }
         if f is None:
-            f = checks.check_clause(cur_arts, label, ord_enforce, name, key)
+            f = checks.check_clause(cur_arts, label, ord_enforce, name, key,
+                                    subspec=(occ.get("hang"), occ.get("ho"), occ.get("mok")))
             # 행정규칙임을 명시(시점 판정 아님을 담당자가 알도록) + 현행이면 노이즈 억제 유지
             f["change_type"] = f.get("change_type") or ""
             f["detail"] = "[행정규칙] " + f["detail"]
@@ -242,7 +243,7 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                 f = checks.diff_clause(old_arts, cur_arts, label, ord_enforce,
                                        name, law_id, old_enforce, subspec=subspec)
             else:
-                f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id)
+                f = checks.check_clause(cur_arts, label, ord_enforce, name, law_id, subspec=subspec)
             f["ord_clause"] = occ["ord_article"]
             f["ord_seq"] = occ["ord_seq"]
             # 꺽쇠 권고는 '전체 법령명을 꺽쇠 없이' 쓴 그 인용에만(약칭 '법'·'같은 법'은 정상)

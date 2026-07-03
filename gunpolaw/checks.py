@@ -76,12 +76,16 @@ def basis_dates(content, ord_enforce):
     return (was, now, amended_after)
 
 
-def check_clause(articles, clause_label, ord_enforce, law_name="", law_id=""):
-    """단일 인용 조항 판정 -> finding dict (현행이면 category=current)."""
+def check_clause(articles, clause_label, ord_enforce, law_name="", law_id="", subspec=None):
+    """단일 인용 조항 판정 -> finding dict (현행이면 category=current).
+
+    subspec=(항,호,목) 지정 시 그 하위단위 텍스트로 좁혀 개정 태그를 본다 — 정의 조항처럼
+    조 전체 <개정> 태그가 딸려 있어도, 인용한 호(예: 제2조제3호)엔 개정 표기가 없으면
+    조 전체 '내용변경'으로 오판하지 않는다(당시 시행본 없이도 오탐 억제)."""
     base = {
         "law_id": law_id, "law_name": law_name,
         "clause_label": clause_label, "ord_enforce": ord_enforce,
-        "clause_enforce": "", "old_enforce": "", "evidence": "",
+        "clause_enforce": "", "old_enforce": "", "evidence": "", "clause_detail": "",
     }
     art = articles.get(clause_label)
 
@@ -102,8 +106,18 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id=""):
         return {**base, "category": "timing", "severity": "check",
                 "clause_enforce": art["enforce_date"], "detail": "조례 시행일자 비교 불가"}
 
-    # 1차 신호: 해당 조항의 inline 개정일 (전부개정 일괄 갱신 노이즈 회피)
-    was, now, amended_after = basis_dates(art["content"], ord_enforce)
+    # 인용이 특정 호/목이면 그 단위 텍스트로 좁혀 개정 태그를 본다(조 전체 오탐 방지).
+    content = art["content"]
+    det = ""
+    if subspec and any(subspec):
+        sub = extract_subunit(art["content"], *subspec)
+        if sub is not None:
+            det = subspec_label(*subspec)
+            base["clause_detail"] = det
+            content = sub
+
+    # 1차 신호: (좁힌) 조항의 inline 개정일 (전부개정 일괄 갱신 노이즈 회피)
+    was, now, amended_after = basis_dates(content, ord_enforce)
     if now is not None:
         base["clause_enforce"] = now
         if was:
@@ -113,10 +127,20 @@ def check_clause(articles, clause_label, ord_enforce, law_name="", law_id=""):
             diff = (ad - od2).days if (ad and od2) else 0
             gap = f"개정 {was}→{now}" if (was and was != now) else f"개정일 {now}"
             return {**base, "category": "timing", "severity": "review",
-                    "detail": f"인용 조항이 조례 시행({ord_enforce}) 이후 개정됨 "
+                    "detail": f"인용 조항{det}이 조례 시행({ord_enforce}) 이후 개정됨 "
                               f"({gap}, {diff}일 차) — 내용 변경, 검토 필요"}
         return {**base, "category": "current", "severity": "current",
-                "detail": f"해당 조 최종 개정일({now})이 조례 시행 이전 — 현행 정합"}
+                "detail": f"해당 조{det} 최종 개정일({now})이 조례 시행 이전 — 현행 정합"}
+
+    # 호/목으로 좁혔는데 그 단위엔 개정 태그가 없지만 조 전체는 조례 이후 개정된 경우 —
+    # 이 호의 변경 여부는 당시 시행본 없이 확정 불가 → '내용변경' 오탐 대신 '확인 필요'.
+    if det:
+        _, art_now, art_after = basis_dates(art["content"], ord_enforce)
+        if art_now is not None and art_after:
+            base["clause_enforce"] = art_now
+            return {**base, "category": "timing", "severity": "check", "change_type": "호미확인",
+                    "detail": f"{clause_label}은 조례 시행 이후 개정(개정일 {art_now})됐으나 "
+                              f"인용한 {det}엔 개정 표기 없음 — 이 호의 변경 여부 확인 필요"}
 
     # 태그 없음: 조문시행일자로 전부개정 가능성만 보조 판정(확정 변경엔 미포함)
     cd = _date(art["enforce_date"])
