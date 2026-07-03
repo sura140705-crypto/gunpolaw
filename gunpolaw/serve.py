@@ -211,8 +211,9 @@ def _highlight_article(no, body, cites, actionable=None):
 
     span은 normalize_text(조문본문) 기준 offset이므로 같은 정규화 텍스트에 적용한다.
     겹치거나 범위를 벗어난 span은 건너뛴다(안전).
-    actionable(set) 지정 시 그 안의 (조문, 법령, 조라벨) 인용만 강조 — 정비 대상만
-    본문에 색칠해 가독성을 높인다(현행 유지·타 조례 인용은 평문). None이면 전부 강조.
+    actionable(set) 지정 시 그 안의 (조문, 법령, 조라벨) 인용은 정비 대상으로 색칠·강조,
+    나머지 인용(변경 없음/현행)은 옅은 밑줄로 표기 — '인식·검토했고 변경 없음'을 드러낸다
+    (검토 흔적). None이면 전부 정비 대상처럼 강조.
     """
     text = normalize_text(body)
     spans = sorted((c for c in cites),
@@ -222,11 +223,12 @@ def _highlight_article(no, body, cites, actionable=None):
         s, e = c["span_start"] or 0, c["span_end"] or 0
         if s < pos or e > n or s >= e:      # 겹침/이상치 방어
             continue
-        if actionable is not None and not _cite_actionable(no, c, actionable):
-            continue                         # 정비 대상 아님 → 평문(나중 tail에 포함)
         out.append(_esc(text[pos:s]))
+        act = actionable is None or _cite_actionable(no, c, actionable)
         # 타 조례(자치법규)는 상위법령 정합성 검토 대상이 아니라 회색으로 구분(우측 검토에 없음)
-        if c.get("cite_type") == "자치법규":
+        if not act and c.get("cite_type") != "자치법규":
+            cls = "cite-current"           # 변경 없음 — 옅은 밑줄만(검토함 표시)
+        elif c.get("cite_type") == "자치법규":
             cls = "cite-local"
         elif c.get("cite_naked"):
             cls = "cite-naked"
@@ -638,6 +640,10 @@ mark.cite-naked:hover{background:#ddd6fe;}
 mark.cite-local{background:#f1f5f9;color:#64748b;border-radius:3px;padding:0 2px;
                 border-bottom:1px dotted #94a3b8;cursor:pointer;}
 mark.cite-local:hover{background:#e2e8f0;}
+/* 변경 없음(현행) 인용 — 색 강조 없이 옅은 밑줄만: '검토했고 변경 없음' 흔적 */
+mark.cite-current{background:transparent;color:inherit;padding:0;border-radius:0;
+                  border-bottom:1px solid #cbd5e1;cursor:pointer;}
+mark.cite-current:hover{background:#f1f5f9;border-bottom-color:#94a3b8;}
 mark.cite-focus{outline:2px solid #f59e0b;outline-offset:1px;}
 /* 타 조례(자치법규) 인용 클릭 시 우측 미니 정보 카드 */
 .lref{position:relative;border:1px solid #c7d2fe;background:#eef2ff;border-radius:9px;
@@ -1085,7 +1091,7 @@ async function selectOrd(mst){
      <h2 style="margin-top:8px">${esc(m.name||"조례")}</h2><div class="m">${meta}</div></div>
      <div class="mtabs"><button data-t="body" class="on">📄 조례 본문</button><button data-t="rec">🔧 검토 사항</button></div>
      <div class="dsplit show-body">
-       <div class="dbody"><div class="dcolhd">📄 조례 본문(현황) — 정비 대상 인용만 강조(클릭 시 우측 검토) · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6" title="낫표 「」 없이 쓴 상위법령 인용 — 서식 정비 대상">「」 누락</span></div>${compBar}${linkedBar}${left}</div>
+       <div class="dbody"><div class="dcolhd">📄 조례 본문(현황) — 정비 대상 인용 강조(클릭 시 우측 검토) · <span style="color:#1e3a8a">상위법령</span> / <span style="color:#5b21b6" title="낫표 「」 없이 쓴 상위법령 인용 — 서식 정비 대상">「」 누락</span> · <span style="border-bottom:1px solid #94a3b8" title="검토했고 변경 없음(현행 정합)">변경없음</span></div>${compBar}${linkedBar}${left}</div>
        <div class="drec hide-cur"><div class="dcolhd">🔧 검토 사항(상세) — 조례 조문별 · 좌측 인용 클릭 시 펼침</div>${gradeBar}${diffBtn}${curBtn}<div id="localref"></div>${right}</div>
      </div>`;
   dp.style.display="block";
