@@ -200,10 +200,13 @@ def _esc(s):
 def _cite_actionable(article_no, cite, actionable):
     """이 인용이 정비 대상인가. 인용의 clause_label 은 '제148조,제149조'처럼 여러 조를
     합쳐 오지만 findings 는 조 단위(제148조/제149조 각각)라, 콤마로 쪼개 하나라도
-    정비 대상 집합에 있으면 강조 대상으로 본다(조라벨 단위 불일치 방어)."""
+    정비 대상 집합에 있으면 강조 대상으로 본다(조라벨 단위 불일치 방어).
+    법령단위 finding(법령미해결·지자체행정규칙 등 clause_label='')은 조라벨과 무관하게
+    그 법령 인용 전체가 대상이므로 (조문, 법령, '') 폴백으로도 매칭한다."""
     law = cite.get("law_name") or ""
     parts = [p.strip() for p in (cite.get("clause_label") or "").split(",")] or [""]
-    return any((article_no, law, p) in actionable for p in parts)
+    return (any((article_no, law, p) in actionable for p in parts)
+            or (article_no, law, "") in actionable)
 
 
 def _highlight_article(no, body, cites, actionable=None):

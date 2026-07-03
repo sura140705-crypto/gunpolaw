@@ -145,8 +145,12 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
     for name, g in grouped.items():
         if g["type"] != "법령":          # 자치법규간 참조는 제외
             continue
-        # 이 법령을 인용한 조례 조문(법명only 위치) — 법령단위 finding 의 정비 위치
-        law_loc = ", ".join(g.get("law_articles", []))
+        # 이 법령을 인용한 조례 조문 — 법령단위 finding(법령미해결/지자체행정규칙 등)의 정비 위치.
+        # law_articles(법명only)만이 아니라 조항 붙은 인용(clause 포함)도 포함해야 '위치 미상'을 막는다.
+        _loc_arts = ({o["ord_article"] for o in g.get("occurrences", []) if o.get("ord_article")}
+                     | set(g.get("law_articles", [])))
+        law_loc = ", ".join(sorted(
+            _loc_arts, key=lambda a: int(re.search(r"\d+", a).group()) if a and re.search(r"\d+", a) else 0))
         law_seq = g.get("law_seq", 0)
         naked_any = g.get("naked_any", False)
         naked_only = g.get("naked_only", False)
