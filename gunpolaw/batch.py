@@ -156,7 +156,9 @@ def _classify_affected(conn, law_id, mode, changed_labels):
     해당  = 바뀐 조문을 인용 (어느 조인지 clauses 로 표시)
     확인  = 법명만 인용(조 미지정) → 개정 관련 여부 판단 필요
     무관  = 안 바뀐 조문만 인용 → 제외(알람에서 빠짐)
-    반환: {"affected":[{mst,name,dept,clauses}], "uncertain":[{mst,name,dept}]}
+    연계  = 공식 연계(lnkOrg)엔 있으나 본문 인용이 전혀 없음 → 위임·근거 사각지대(리콜 보강).
+           조문 정보가 없어 관련 여부는 사람이 확인(개정 시 놓치던 관계를 메운다).
+    반환: {"affected":[{mst,name,dept,clauses}], "uncertain":[{…}], "linked":[{…}]}
     """
     by = {}
     for r in conn.execute(
@@ -187,7 +189,18 @@ def _classify_affected(conn, law_id, mode, changed_labels):
             elif d["nameonly"]:
                 uncertain.append(base)
             # 안 바뀐 조문만 인용 → 무관(제외)
-    return {"affected": affected, "uncertain": uncertain}
+    # 공식 연계(ord_law_links)엔 있으나 본문 인용이 전혀 없는 조례 = 리콜 사각지대
+    cited = set(by.keys())
+    linked, seen = [], set()
+    for r in conn.execute(
+            """SELECT DISTINCT l.mst, o.name, o.dept
+               FROM ord_law_links l JOIN ordinances o ON o.mst = l.mst
+               WHERE l.law_id = ? ORDER BY o.dept, o.name""", (law_id,)):
+        if r["mst"] in cited or r["mst"] in seen:
+            continue
+        seen.add(r["mst"])
+        linked.append({"mst": r["mst"], "name": r["name"], "dept": r["dept"]})
+    return {"affected": affected, "uncertain": uncertain, "linked": linked}
 
 
 def detect_law_changes(conn, old_keys):
