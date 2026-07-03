@@ -14,10 +14,16 @@ JO_RANGE_RE = re.compile(
 )
 # 조 뒤의 항(단일)·호 나열(가지호 포함)·목(단일). "제3호, 제4호 및 제10의 2호" 같은 a,b,c,d.
 _HANG_P = re.compile(r'\s*제(\d+)항')
+# 항 나열("제1항 및 제2항") — 규칙상 각각을 별개 인용 단위로 잡는다.
+_HANG_ENUM_P = re.compile(r'\s*(제\d+항(?:\s*(?:,|ㆍ|·|및|또는)\s*제\d+항)*)')
+_HANG_NUM_P = re.compile(r'제(\d+)항')
 _HO_ENUM_P = re.compile(
     r'\s*(제\d+(?:\s*의\s*\d+)?호(?:\s*(?:,|ㆍ|·|및|또는)\s*제\d+(?:\s*의\s*\d+)?호)*)')
 _HO_P = re.compile(r'제(\d+(?:\s*의\s*\d+)?)호')
 _MOK_P = re.compile(r'\s*([가-힣])목')
+# 목 나열("가목 및 다목") — 단일 호 아래의 여러 목을 각각 잡는다.
+_MOK_ENUM_P = re.compile(r'\s*([가-힣]목(?:\s*(?:,|ㆍ|·|및|또는)\s*[가-힣]목)*)')
+_MOK_LETTER_P = re.compile(r'([가-힣])목')
 
 
 def to_label(jo, ga=0):
@@ -69,26 +75,37 @@ def tokenize_clauses(clause_text):
         for m in JO_SINGLE_RE.finditer(sub):
             jo, ga = int(m.group(1)), int(m.group(2) or 0)
             label = to_label(jo, ga)
-            tail = sub[m.end(): m.end() + 80]
+            tail = sub[m.end(): m.end() + 100]
             pos = 0
-            hm = _HANG_P.match(tail, pos)
-            hang = int(hm.group(1)) if hm else None
-            if hm:
-                pos = hm.end()
+            # 항: 나열 가능(제1항 및 제2항). 여러 항이면 각 항을 별도 토큰 —
+            # 호/목은 보지 않고 조 전체 폴백에 맡긴다(여러 단위 인용은 _resolve_specs가 조 전체로).
+            hme = _HANG_ENUM_P.match(tail, pos)
+            hangs = [int(x) for x in _HANG_NUM_P.findall(hme.group(1))] if hme else []
+            if hme:
+                pos = hme.end()
+            if len(hangs) > 1:
+                for hg in hangs:
+                    tokens.append({"label": label, "jo": jo, "ga": ga,
+                                   "hang": hg, "ho": None, "mok": None})
+                continue
+            hang = hangs[0] if hangs else None
             em = _HO_ENUM_P.match(tail, pos)
-            mok = None
-            if em:
-                hos = [re.sub(r"\s+", "", h) for h in _HO_P.findall(em.group(1))]
-                mk = _MOK_P.match(tail, em.end()) if len(hos) == 1 else None
-                mok = mk.group(1) if mk else None
+            hos = [re.sub(r"\s+", "", h) for h in _HO_P.findall(em.group(1))] if em else []
+            # 단일 호 아래 목은 나열(가목 및 다목) 가능 — 각 목을 별도 토큰으로.
+            moks = []
+            if len(hos) == 1:
+                mme = _MOK_ENUM_P.match(tail, em.end())
+                moks = _MOK_LETTER_P.findall(mme.group(1)) if mme else []
+            if len(hos) == 1 and moks:
+                for mk in moks:
+                    tokens.append({"label": label, "jo": jo, "ga": ga,
+                                   "hang": hang, "ho": hos[0], "mok": mk})
             else:
-                hos = []
-            # 호 나열은 각 호를 별도 토큰으로(조례 조문별·호별 판정). 호 없으면 항/조 단위.
-            subs = [(hang, h, (mok if len(hos) == 1 else None)) for h in hos] \
-                or [(hang, None, None)]
-            for hg, h, mk in subs:
-                tokens.append({"label": label, "jo": jo, "ga": ga,
-                               "hang": hg, "ho": h, "mok": mk})
+                # 호 나열은 각 호를 별도 토큰으로(조례 조문별·호별 판정). 호 없으면 항/조 단위.
+                subs = [(hang, h, None) for h in hos] or [(hang, None, None)]
+                for hg, h, mk in subs:
+                    tokens.append({"label": label, "jo": jo, "ga": ga,
+                                   "hang": hg, "ho": h, "mok": mk})
 
     # (label, 항, 호, 목) 전체 키로 중복 제거 — 같은 조의 서로 다른 호는 보존
     uniq = {}
