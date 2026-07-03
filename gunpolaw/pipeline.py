@@ -209,7 +209,8 @@ def analyze_ordinance(mst, link_index=None, law_cache=None,
                     "law_id": law_id, "law_name": name, "clause_label": "",
                     "clause_detail": "", "category": "status", "severity": "review",
                     "change_type": "제명변경", "renamed_to": renamed_to,
-                    "detail": f"인용한 「{name}」이(가) 현행 「{renamed_to}」(으)로 제명변경"
+                    "detail": f"인용한 「{name}」{checks._josa(name, '이', '가')} 현행 "
+                              f"「{renamed_to}」{checks._josa(renamed_to, '으로', '로')} 제명변경"
                               f"(개칭·통폐합)됨 — 법령 자체가 바뀌었으니 인용 법령명을 현행화하고 "
                               f"관련 조문을 전면 검토. (조문번호·내용이 재편됐을 수 있어 개별 조문 "
                               f"비교는 생략) [개칭 아니면 인용 오기 확인]",

@@ -213,7 +213,7 @@ def action_text(f):
             return f"「{law}」 {clause} 인용을 현행 조문번호로 정정 ({loc}) — {_get(f, 'detail')}"
         if g == "review":
             if ct == "내용변경":
-                return f"「{law}」 {clause} 개정 내용을 반영하여 {loc}을(를) 검토·정비"
+                return f"「{law}」 {clause} 개정 내용을 반영하여 {loc}{_josa(loc, '을', '를')} 검토·정비"
             if ct == "삭제":
                 return f"「{law}」 {clause} 삭제·통합 여부를 확인하고 {loc}의 인용을 정비"
             if ct == "번호이동":
