@@ -1,0 +1,12 @@
+  앞으로 데이터/코드 갱신 때
+
+  # 코드 리포(비공개) 갱신
+  cd /c/gunpo_law && git add -A && git commit -m "..." && git push
+
+  # 정적 사이트 다시 생성 후 공개 리포에 반영
+  python -m gunpolaw --export-static site
+  cd site && git add -A && git commit -m "갱신" && git push
+
+  Pages 주소가 떴는지, 아니면 막히는 화면이 있는지 알려주세요. 열리면 배포 완료입니다 🎉
+
+https://sura140705-crypto.github.io/gunpolaw-view/
