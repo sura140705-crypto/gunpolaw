@@ -44,8 +44,18 @@ echo(
 
 REM ------------------------------------------------------------
 REM  [3/5] 정적 사이트 재생성 (site/ 에 DB 반영)
+REM        새 PC 등 site 리포가 없으면 공개 리포를 자동으로 받아온다
 REM ------------------------------------------------------------
 echo [3/5] 정적 사이트 재생성 중...
+if not exist "site\.git" (
+  echo   site 리포가 없어 GitHub에서 새로 받습니다...
+  if exist "site" rmdir /s /q site
+  git clone https://github.com/sura140705-crypto/gunpolaw-view.git site
+  if errorlevel 1 (
+    echo [오류] site 리포 clone 실패 ^(네트워크/git 설치 확인^).
+    goto :fail
+  )
+)
 python -m gunpolaw --export-static site
 if errorlevel 1 (
   echo [오류] 사이트 생성 실패.
@@ -54,21 +64,25 @@ if errorlevel 1 (
 echo(
 
 REM ------------------------------------------------------------
-REM  [4/5] (선택) 코드 리포 변경분 커밋 - 보통 없음(DB는 미추적)
+REM  [4/5] (선택) 코드 리포 변경분 커밋 - 이 폴더가 코드 리포일 때만
 REM ------------------------------------------------------------
 echo [4/5] 코드 리포 변경 확인 중...
-git add -A
-git diff --cached --quiet
-if errorlevel 1 (
-  git commit -m "데이터/코드 갱신 %date%"
-  git push
+if exist ".git" (
+  git add -A
+  git diff --cached --quiet
   if errorlevel 1 (
-    echo [경고] 코드 리포 push 실패 ^(네트워크/로그인 확인^). 사이트 배포는 계속합니다.
+    git commit -m "데이터/코드 갱신 %date%"
+    git push
+    if errorlevel 1 (
+      echo [경고] 코드 리포 push 실패 ^(네트워크/로그인 확인^). 사이트 배포는 계속합니다.
+    ) else (
+      echo   코드 리포 push 완료
+    )
   ) else (
-    echo   코드 리포 push 완료
+    echo   코드 리포 변경 없음 - 생략.
   )
 ) else (
-  echo   코드 리포 변경 없음 - 생략.
+  echo   이 폴더는 코드 리포가 아님 - 코드 push 생략.
 )
 echo(
 
